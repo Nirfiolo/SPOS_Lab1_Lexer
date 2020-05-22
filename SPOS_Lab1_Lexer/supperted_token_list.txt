@@ -1,0 +1,18 @@
+prototype:
+numeric constants [0-9]*
+operators : *
+keywords : int
+identifiers : [a-Z, _]*
+
+
+TODO:
+numeric constants : [0-9]*
+literals and symbolic constants : "text", ...
+preprocessor directives : #include, #define, #if, ...
+comments : /* commented text */ // also commented text
+keywords : true, false, if, while, const, for, return, ...
+identifiers : [a...Z|_]*[a...Z|0-9|_]*
+operators : +, <, >, =, ==, *, ...
+punctuation marks : ,, ., (, ), ;, ...
+
+
