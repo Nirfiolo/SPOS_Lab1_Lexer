@@ -26,8 +26,55 @@ namespace lexer
         // * keywords
         KeywordsBegin,
 
+        // types
+        Bool,
+        Char,
+        Short,
         Int,
+        Long,
+        Unsigned,
         Float,
+        Double,
+        Struct,
+        Class,
+        Enum,
+        Auto,
+        Void,
+
+        // access modifier
+        Public,
+        Protected,
+        Private,
+
+
+        Do,
+        While,
+        For,
+        If,
+        Else,
+        Continue,
+        Break,
+        Return,
+        Default,
+
+        Typeid,
+
+        True,
+        False,
+
+        Const,
+        Volatile,
+        Constexpr,
+
+        // exceptions
+        Noexcept,
+        Throw,
+
+        // "Four Horsemen"
+        Static_cast,
+        Const_cast,
+        Dynamic_cast,
+        Reinterpret_cast,
 
         KeywordsEnd,
 
@@ -108,8 +155,55 @@ namespace lexer
         // * keywords
         "KeywordsBegin",
 
+        // types
+        "bool",
+        "char",
+        "short",
         "int",
+        "long",
+        "unsigned",
         "float",
+        "double",
+        "struct",
+        "class",
+        "enum",
+        "auto",
+        "void",
+
+        // access modifier
+        "public",
+        "protected",
+        "private",
+
+
+        "do",
+        "while",
+        "for",
+        "if",
+        "else",
+        "continue",
+        "break",
+        "return",
+        "default",
+
+        "typeid",
+
+        "true",
+        "false",
+
+        "const",
+        "volatile",
+        "constexpr",
+
+        // exceptions
+        "noexcept",
+        "throw",
+
+        // "Four Horsemen"
+        "static_cast",
+        "const_cast",
+        "dynamic_cast",
+        "reinterpret_cast",
 
         "KeywordsEnd",
 

@@ -170,9 +170,15 @@ namespace lexer
         return { TokenType::Invalid, false };
     }
 
-    std::pair<size_t, bool> try_get_from_symbol_table(symbol_table_t const & symbol_table, std::string const & symbol) noexcept
+    std::pair<size_t, bool> try_get_from_symbol_table(symbol_table_t const & symbol_table, std::string_view symbol) noexcept
     {
-        // TODO:
+        for (size_t i = 0; i < symbol_table.size(); ++i)
+        {
+            if (symbol == symbol_table[i])
+            {
+                return { i, true };
+            }
+        }
 
         return { std::numeric_limits<size_t>::max(), false };
     }
@@ -188,12 +194,63 @@ namespace lexer
     {
         if (is_symbol_type(type))
         {
-            tokens.push_back({ line, column, type, symbol_table.size() });
-            symbol_table.push_back(std::string{ symbol });
+            std::pair<size_t, bool> from_symbol_table = try_get_from_symbol_table(symbol_table, symbol);
+            if (from_symbol_table.second)
+            {
+                tokens.push_back({ line, column, type, from_symbol_table.first });
+            }
+            else
+            {
+                tokens.push_back({ line, column, type, symbol_table.size() });
+                symbol_table.push_back(std::string{ symbol });
+            }
         }
         else
         {
             tokens.push_back({ line, column, type });
+        }
+    }
+
+
+    void handle_digit(
+        symbol_table_t & symbol_table,
+        tokens_t & tokens,
+        token_errors_t & token_errors,
+        std::string_view code,
+        size_t line,
+        size_t & column
+    ) noexcept
+    {
+        // TODO: handle single litter symbol after number
+
+        char c = code[column];
+
+        // TODO: 
+        bool has_dot = false;
+        bool has_e = false;
+        bool has_x = false;
+        bool has_b = false;
+
+        size_t const start = column;
+        ++column;
+        while (column < code.size() && is_valid_number_part(code[column]))
+        {
+            ++column;
+        }
+        std::string_view number = code.substr(start, column - start);
+
+        if (column < code.size() && !is_valid_symbol_after_number(code[column]))
+        {
+            // TODO: error
+        }
+
+        if (has_dot)
+        {
+            create_new_token(symbol_table, tokens, line, start, TokenType::FloatNumber, number);
+        }
+        if (!has_dot && !has_x && !has_b)
+        {
+            create_new_token(symbol_table, tokens, line, start, TokenType::IntNumber, number);
         }
     }
 
@@ -242,42 +299,55 @@ namespace lexer
         handle_operator_by_fa(symbol_table, tokens, token_errors, code, line, column, column, fa_root);
     }
 
-    void handle_digit(symbol_table_t & symbol_table, tokens_t & tokens, token_errors_t & token_errors, std::string_view code, size_t line, size_t & column) noexcept
-    {
-        // TODO: handle single litter symbol after number
 
+    void handle_word(
+        symbol_table_t & symbol_table,
+        tokens_t & tokens,
+        token_errors_t & token_errors,
+        std::string_view code,
+        size_t line,
+        size_t & column
+    ) noexcept
+    {
         char c = code[column];
 
-        // TODO: 
-        bool has_dot = false;
-        bool has_e = false;
-        bool has_x = false;
-        bool has_b = false;
+        bool has_number = false;
 
         size_t const start = column;
         ++column;
-        while (column < code.size() && is_valid_number_part(code[column]))
+        while (column < code.size() && is_valid_word_part(code[column]))
         {
+            if (!has_number && is_digit(code[column]))
+            {
+                has_number = true;
+            }
             ++column;
         }
-        std::string_view number = code.substr(start, column - start);
 
-        if (column < code.size() && !is_valid_symbol_after_number(code[column]))
+        std::string_view word = code.substr(start, column - start);
+
+        if (!has_number)
         {
-            // TODO: error
+            std::pair<TokenType, bool> try_keywords = try_get_keywords(word);
+            if (try_keywords.second)
+            {
+                create_new_token(symbol_table, tokens, line, start, try_keywords.first);
+                return;
+            }
         }
 
-        if (has_dot)
-        {
-            create_new_token(symbol_table, tokens, line, start, TokenType::FloatNumber, number);
-        }
-        if (!has_dot && !has_x && !has_b)
-        {
-            create_new_token(symbol_table, tokens, line, start, TokenType::IntNumber, number);
-        }
+        create_new_token(symbol_table, tokens, line, start, TokenType::Id, word);
     }
 
-    bool next_token(symbol_table_t & symbol_table, tokens_t & tokens, token_errors_t & token_errors, std::string_view code, size_t line, size_t & column, bool & is_now_commented_code) noexcept
+    bool next_token(
+        symbol_table_t & symbol_table,
+        tokens_t & tokens,
+        token_errors_t & token_errors,
+        std::string_view code,
+        size_t line,
+        size_t & column,
+        bool & is_now_commented_code
+    ) noexcept
     {
         while (column < code.size() && is_space(code[column]))
         {
@@ -300,7 +370,12 @@ namespace lexer
         // TODO: is_symbolic_constants
         // TODO: is_preprocessor_directives
         // TODO: is_comments
-        // TODO: is_word
+        if (is_valid_word_begin(c))
+        {
+            handle_word(symbol_table, tokens, token_errors, code, line, column);
+            return true;
+        }
+
         if (is_operator(c))
         {
             handle_operator_by_fa(symbol_table, tokens, token_errors, code, line, column);
@@ -384,6 +459,7 @@ namespace lexer
             os << "Type: " << std::setw(15) << Token_to_string[static_cast<size_t>(tokens[i].type)] << ' ';
             os << "Line: " << std::right << std::setw(4) << tokens[i].line <<
                 '[' << std::left << std::setw(4) << tokens[i].column << ']' << ' ';
+            os << "Symbol id: " << std::setw(4) << (is_symbol_type(tokens[i].type) ? std::to_string(tokens[i].index_in_symbol_table) : "") << ' ';
             os << "Symbol: " << std::setw(0) << (is_symbol_type(tokens[i].type) ? symbol_table[tokens[i].index_in_symbol_table] : "");
             os << '\n';
         }

@@ -1,3 +1,5 @@
-1123 * aadsad + 12 + ds + 888 / 12 /= fd <<= sdsd | 23 &= 23 ? 2 : 3232
+a + a - a + 1 * a * 1 = 1
+
+1123 * aadsad + 12 + ds + 888 / 12 /= fd <<= sdsd | 23 &= 23 ? 2 : 3232 unsigned int + const volatile throw return
 214 adasd
 231222312312312312 1233123122222231231231231231231219
