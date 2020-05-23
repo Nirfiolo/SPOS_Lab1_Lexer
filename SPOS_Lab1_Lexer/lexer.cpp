@@ -803,8 +803,6 @@ namespace lexer
                 return;
             }
         }
-
-        create_new_token_error(token_errors, std::string{ code.substr(start, column - start) }, line, column);
     }
 
     void handle_operator_by_fa(

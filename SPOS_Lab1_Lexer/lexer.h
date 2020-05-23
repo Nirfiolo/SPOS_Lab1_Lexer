@@ -124,7 +124,6 @@ namespace lexer
         MultiplyAssociation,
         DivideAssociation,
         ModAssociation,
-        // TODO: unar - +
 
         // logic
         And,
@@ -149,10 +148,6 @@ namespace lexer
         QUEST,
         Colon,
         // others
-        LeftShift,
-        RightShift,
-        LeftShiftAssociation,
-        RightShiftAssociation,
         Dot,
         MemberAccess,
         Scope,
@@ -319,10 +314,6 @@ namespace lexer
         "?",
         ":",
         // others
-        "<<",
-        ">>",
-        "<<=",
-        ">>=",
         ".",
         "->",
         "::",

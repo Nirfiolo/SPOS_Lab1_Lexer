@@ -6,6 +6,6 @@
 int main()
 {
     lexer::lexer_output_t const lexer_output = lexer::get_tokens("lexer.cpp");
-
+    
     lexer::output_lexer_data(std::cout, lexer_output);
 }
