@@ -1,3 +1,9 @@
+int main() 
+{ 
+    std::cout << "Hi, world!\n";
+    return 0; 
+}
+
 while (column < code.size() && is_valid_number_part(code[column]))
 
 0xab123
@@ -30,7 +36,7 @@ asda
 asdad\
 sd
 
-1123 * a +* const volatile throw return <<<=
+1123 * a +* const volatile \ throw return <<<=
 214 adasd
 231222312312312312
 // sd sds d

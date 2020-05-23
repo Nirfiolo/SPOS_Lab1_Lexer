@@ -184,7 +184,8 @@ namespace lexer
 
             for (size_t i = 0; i < offset && position < string_to_type.size(); ++i)
             {
-                if (string_to_type[position].first.size() <= i || string_to_type[position].first[i] != string_to_type[last_poistion].first[i])
+                if (string_to_type[position].first.size() <= i ||
+                    string_to_type[position].first[i] != string_to_type[last_poistion].first[i])
                 {
                     return;
                 }
@@ -229,7 +230,11 @@ namespace lexer
 
     std::pair<TokenType, bool> try_get_keywords(std::string_view word) noexcept
     {
-        for (size_t i = static_cast<size_t>(TokenType::KeywordsBegin) + 1; i < static_cast<size_t>(TokenType::KeywordsEnd); ++i)
+        for (
+            size_t i = static_cast<size_t>(TokenType::KeywordsBegin) + 1;
+            i < static_cast<size_t>(TokenType::KeywordsEnd);
+            ++i
+            )
         {
             if (word == std::string_view{ Token_to_string[i] })
             {
@@ -263,7 +268,7 @@ namespace lexer
     {
         if (is_symbol_type(type))
         {
-            std::pair<size_t, bool> from_symbol_table = try_get_from_symbol_table(symbol_table, symbol);
+            std::pair<size_t, bool> const from_symbol_table = try_get_from_symbol_table(symbol_table, symbol);
             if (from_symbol_table.second)
             {
                 tokens.push_back({ line, column, type, from_symbol_table.first });
@@ -321,8 +326,6 @@ namespace lexer
         size_t & column
     ) noexcept
     {
-        // TODO: handle single litter symbol after number
-
         char const c = code[column];
 
         size_t const start = column;
@@ -366,10 +369,20 @@ namespace lexer
             is_binary = true;
             is_decimal = false;
         }
-        if (is_first_zero && next_char == 'x')
+        else if (is_first_zero && next_char == 'x')
         {
             is_hex = true;
             is_decimal = false;
+        }
+        else if (!is_valid_number_part(next_char))
+        {
+            create_new_token(symbol_table, tokens, line, start, TokenType::IntNumber, code.substr(start, 1));
+            return;
+        }
+
+        if (next_char == '\'')
+        {
+            last_number_separator_index = column;
         }
 
         if (next_char == '.')
@@ -381,9 +394,9 @@ namespace lexer
         ++column;
 
         while (column < code.size() &&
-            ((is_decimal && is_valid_number_part(code[column])) || 
-            (is_hex && is_valid_hex_number_part(code[column])) || 
-            (is_binary && is_valid_binary_number_part(code[column]))))
+            ((is_decimal && is_valid_number_part(code[column])) ||
+                (is_hex && is_valid_hex_number_part(code[column])) ||
+                (is_binary && is_valid_binary_number_part(code[column]))))
         {
             if (has_dot && code[column] == '.')
             {
@@ -422,7 +435,7 @@ namespace lexer
             return;
         }
 
-        std::string_view number = code.substr(start, column - start);
+        std::string_view const number = code.substr(start, column - start);
         if (has_dot)
         {
             create_new_token(symbol_table, tokens, line, start, TokenType::FloatNumber, number);
@@ -442,7 +455,7 @@ namespace lexer
         size_t & column
     ) noexcept
     {
-        char c = code[column];
+        char const c = code[column];
 
         size_t const start = column;
         ++column;
@@ -453,7 +466,7 @@ namespace lexer
         }
         char next_char = code[column];
 
-        bool is_need_additional_char = (next_char == '\\');
+        bool const is_need_additional_char = (next_char == '\\');
         char additional_char;
         if (is_need_additional_char)
         {
@@ -493,7 +506,7 @@ namespace lexer
         }
         ++column;
 
-        std::string_view word = code.substr(start, column - start);
+        std::string_view const word = code.substr(start, column - start);
 
         create_new_token(symbol_table, tokens, line, start, TokenType::Character, word);
     }
@@ -559,7 +572,12 @@ namespace lexer
             if (string_constant_data.is_active)
             {
                 string_constant_data.data += std::string{ code.substr(start, column - start) };
-                create_new_token_error(token_errors, string_constant_data.data, string_constant_data.line, string_constant_data.column);
+                create_new_token_error(
+                    token_errors,
+                    string_constant_data.data,
+                    string_constant_data.line,
+                    string_constant_data.column
+                );
                 string_constant_data.is_active = false;
                 return;
             }
@@ -568,12 +586,19 @@ namespace lexer
         }
 
         ++column;
-        std::string_view word = code.substr(start, column - start);
+        std::string_view const word = code.substr(start, column - start);
 
         if (string_constant_data.is_active)
         {
             string_constant_data.data += std::string{ word };
-            create_new_token(symbol_table, tokens, string_constant_data.line, string_constant_data.column, TokenType::String, string_constant_data.data);
+            create_new_token(
+                symbol_table,
+                tokens,
+                string_constant_data.line,
+                string_constant_data.column,
+                TokenType::String,
+                string_constant_data.data
+            );
             string_constant_data.is_active = false;
             return;
         }
@@ -591,8 +616,6 @@ namespace lexer
         bool & is_now_preprocessor_directives
     ) noexcept
     {
-        char c = code[column];
-
         size_t const start = column;
         ++column;
         while (column < code.size() && is_lower(code[column]))
@@ -600,7 +623,7 @@ namespace lexer
             ++column;
         }
 
-        std::string_view word = code.substr(start, column - start);
+        std::string_view const word = code.substr(start, column - start);
 
         std::pair<TokenType, bool> const preprocessor_directives = try_get_preprocessor_directives(word);
         if (!preprocessor_directives.second)
@@ -691,7 +714,7 @@ namespace lexer
 
         if (column >= code.size() && !is_previous_spesial_symbol && is_first_comment_type)
         {
-            std::string_view word = code.substr(start, column - start);
+            std::string_view const word = code.substr(start, column - start);
             if (commented_code_data.is_active)
             {
                 commented_code_data.data += std::string{ word };
@@ -741,7 +764,7 @@ namespace lexer
         {
             ++column;
 
-            std::string_view word = code.substr(start, column - start);
+            std::string_view const word = code.substr(start, column - start);
             if (commented_code_data.is_active)
             {
                 commented_code_data.data += std::string{ word };
@@ -827,8 +850,6 @@ namespace lexer
         size_t & column
     ) noexcept
     {
-        char c = code[column];
-
         bool has_number = false;
 
         size_t const start = column;
@@ -842,11 +863,11 @@ namespace lexer
             ++column;
         }
 
-        std::string_view word = code.substr(start, column - start);
+        std::string_view const word = code.substr(start, column - start);
 
         if (!has_number)
         {
-            std::pair<TokenType, bool> try_keywords = try_get_keywords(word);
+            std::pair<TokenType, bool> const try_keywords = try_get_keywords(word);
             if (try_keywords.second)
             {
                 create_new_token(symbol_table, tokens, line, start, try_keywords.first);
@@ -921,7 +942,7 @@ namespace lexer
             return false;
         }
 
-        char c = code[column];
+        char const c = code[column];
 
 
         if (is_valid_number_begin(c))
@@ -962,6 +983,12 @@ namespace lexer
         if (is_punctuation_marks(c))
         {
             handle_punctuation_marks(symbol_table, tokens, token_errors, code, line, column);
+            return true;
+        }
+
+        if (is_now_preprocessor_directives && column + 1 == code.size() && c == '\\')
+        {
+            ++column;
             return true;
         }
 
@@ -1020,11 +1047,21 @@ namespace lexer
 
         if (commented_code_data.is_active)
         {
-            create_new_token_error(token_errors, commented_code_data.data, commented_code_data.line, commented_code_data.column);
+            create_new_token_error(
+                token_errors,
+                commented_code_data.data,
+                commented_code_data.line,
+                commented_code_data.column
+            );
         }
         if (string_constant_data.is_active)
         {
-            create_new_token_error(token_errors, string_constant_data.data, string_constant_data.line, string_constant_data.column);
+            create_new_token_error(
+                token_errors,
+                string_constant_data.data,
+                string_constant_data.line,
+                string_constant_data.column
+            );
         }
 
         return { symbol_table, { tokens, token_errors } };
