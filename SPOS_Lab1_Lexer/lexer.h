@@ -18,10 +18,34 @@ namespace lexer
         NumericConstantsEnd,
 
         // * literals and symbolic constants
+        Character,
+        String,
 
         // * preprocessor directives
+        PreprocessorDirectivesBegin,
+
+        SharpInclude,
+        SharpDefine,
+        SharpError,
+        SharpImport,
+        SharpLine,
+        SharpPragma,
+        SharpUsing,
+        SharpIf,
+        SharpIfdef,
+        SharpIfndef,
+        SharpEndif,
+        SharpElif,
+        SharpElse,
+        SharpUndef,
+
+        PreprocessorDirectivesEnd,
+
+        PrepDirEnd,
 
         // * comments
+        SingleLineComment,
+        MultyLineComment,
 
         // * keywords
         KeywordsBegin,
@@ -58,6 +82,7 @@ namespace lexer
         Default,
 
         Typeid,
+        Using,
 
         True,
         False,
@@ -65,6 +90,7 @@ namespace lexer
         Const,
         Volatile,
         Constexpr,
+        Static,
 
         // exceptions
         Noexcept,
@@ -87,7 +113,9 @@ namespace lexer
         Association,
         // arithmetic
         Add,
+        Increment,
         Sub,
+        Decrement,
         Multiply,
         Divide,
         Mod,
@@ -125,10 +153,25 @@ namespace lexer
         RightShift,
         LeftShiftAssociation,
         RightShiftAssociation,
+        Dot,
+        MemberAccess,
+        Scope,
 
         OperatorsEnd,
 
         // * punctuation marks
+        PunctuationMarksBegin,
+
+        Comma,
+        Semicolon,
+        LeftParen,
+        RightParen,
+        LeftBrack,
+        RightBrack,
+        LeftBrace,
+        RightBrace,
+
+        PunctuationMarksEnd,
 
         // * invalid
         Invalid,
@@ -147,10 +190,34 @@ namespace lexer
         "NumericConstantsEnd",
 
         // * literals and symbolic constants
+        "Character",
+        "String",
 
         // * preprocessor directives
+        "PreprocessorDirectivesBegin",
+
+        "#include",
+        "#define",
+        "#error",
+        "#import",
+        "#line",
+        "#pragma",
+        "#using",
+        "#if",
+        "#ifdef",
+        "#ifndef",
+        "#endif",
+        "#elif",
+        "#else",
+        "#undef",
+
+        "PreprocessorDirectivesEnd",
+
+        "PrepDirEnd",
 
         // * comments
+        "// ...",
+        "/* ... */",
 
         // * keywords
         "KeywordsBegin",
@@ -187,6 +254,7 @@ namespace lexer
         "default",
 
         "typeid",
+        "using",
 
         "true",
         "false",
@@ -194,6 +262,7 @@ namespace lexer
         "const",
         "volatile",
         "constexpr",
+        "static",
 
         // exceptions
         "noexcept",
@@ -216,7 +285,9 @@ namespace lexer
         "=",
         // arithmetic
         "+",
+        "++",
         "-",
+        "--",
         "*",
         "/",
         "%",
@@ -252,10 +323,25 @@ namespace lexer
         ">>",
         "<<=",
         ">>=",
+        ".",
+        "->",
+        "::",
 
         "OperatorsEnd",
 
         // * punctuation marks
+        "PunctuationMarksBegin",
+
+        ",",
+        ";",
+        "(",
+        ")",
+        "[",
+        "]",
+        "{",
+        "}",
+
+        "PunctuationMarksEnd",
 
         // * invalid
         "Invalid"
@@ -285,9 +371,12 @@ namespace lexer
 
     struct TokenError
     {
-        std::string message;
+        static constexpr char const * message = "Error: \"token\" could be introduced";
+
+        std::string symbol;
         size_t line;
         size_t column;
+        size_t length;
     };
 
 
@@ -298,7 +387,6 @@ namespace lexer
     using lexer_output_t = std::pair<symbol_table_t, std::pair<tokens_t, token_errors_t>>;
 
     lexer_output_t get_tokens(std::string const & file_path) noexcept(!IS_DEBUG);
-
 
     void output_lexer_data(std::ostream & os, lexer_output_t const & lexer_output) noexcept;
 }

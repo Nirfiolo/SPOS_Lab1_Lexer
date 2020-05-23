@@ -1,5 +1,48 @@
-a + a - a + 1 * a * 1 = 1
+while (column < code.size() && is_valid_number_part(code[column]))
 
-1123 * aadsad + 12 + ds + 888 / 12 /= fd <<= sdsd | 23 &= 23 ? 2 : 3232 unsigned int + const volatile throw return
+0xab123
+0xabv123
+0b010101101
+0b0101014101
+
+
+123123.323
+12'3'1'2'3'1.1'2'3'1
+12'3'1'2'3'.1'2'3'1
+12'3'1'2'3'1.'2'3'1
+a '1 * a * 1 = 1j '\ sdsd '\' 
+#include ;;;; .. () '
+#if 0 "" ''
+#endif
+'\3' '3' 'd' '\\' "sdsd\" sdsd\'" "ddsdssfsd ds \
+dsdsdjs lkjd lksjkldjaskdj lakjsdl\
+lsad kjaksjd a\
+dfs"
+{
+()
+}
+{([])}
+#define adasd \
+asdasd a\
+asda
+
+"adasdsada \
+asdad\
+sd
+
+1123 * a +* const volatile throw return <<<=
 214 adasd
-231222312312312312 1233123122222231231231231231231219
+231222312312312312
+// sd sds d
+// adasdasda\
+sdsds
+
+/* sdsd */
+/* dsdsd sd sd s
+sdsd 
+sd AS*/
+
+
+
+// sdsd 
+" sdsdsd\
