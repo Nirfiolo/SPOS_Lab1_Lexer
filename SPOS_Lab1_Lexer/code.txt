@@ -4,7 +4,7 @@ int main()
     return 0; 
 }
 
-while (column < code.size() && is_valid_number_part(code[column]))
+while (column < code.size() && is_valid_number_part(code[column]))/
 
 0xab123
 0xabv123
@@ -12,10 +12,15 @@ while (column < code.size() && is_valid_number_part(code[column]))
 0b0101014101
 
 
-123123.323
+123123.32.3
 12'3'1'2'3'1.1'2'3'1
 12'3'1'2'3'.1'2'3'1
 12'3'1'2'3'1.'2'3'1
+1212''233
+1212121'
+
+#adadsad
+
 a '1 * a * 1 = 1j '\ sdsd '\' 
 #include ;;;; .. () '
 #if 0 "" ''

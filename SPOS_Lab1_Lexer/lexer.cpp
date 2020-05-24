@@ -82,14 +82,24 @@ namespace lexer
         return is_digit(c) || (c == '.') || (c == '\'');
     }
 
+    bool is_binary_number(char c) noexcept
+    {
+        return (c == '0' || c == '1');
+    }
+
     bool is_valid_binary_number_part(char c) noexcept
     {
-        return (c == '0' || c == '1' || c == '\'');
+        return (is_binary_number(c) || c == '\'');
+    }
+
+    bool is_hex_number(char c) noexcept
+    {
+        return std::isxdigit(static_cast<unsigned char>(c));
     }
 
     bool is_valid_hex_number_part(char c) noexcept
     {
-        return (std::isxdigit(static_cast<unsigned char>(c)) || c == '\'');
+        return (is_hex_number(c) || c == '\'');
     }
 
     bool is_punctuation_marks(char c) noexcept
@@ -287,6 +297,7 @@ namespace lexer
 
     void create_new_token_error(
         token_errors_t & token_errors,
+        std::string const & message,
         std::string const & symbol,
         size_t line,
         size_t column
@@ -298,14 +309,27 @@ namespace lexer
         {
             TokenError & last_token_error = token_errors.back();
 
-            if (last_token_error.line == line && last_token_error.column + last_token_error.length == column)
+            if (last_token_error.line == line &&
+                last_token_error.column + last_token_error.length == column &&
+                last_token_error.message == message
+                )
             {
                 last_token_error.length += length;
                 last_token_error.symbol += symbol;
                 return;
             }
         }
-        token_errors.push_back({ symbol, line, column, length });
+        token_errors.push_back({ message, symbol, line, column, length });
+    }
+
+    void create_new_token_error(
+        token_errors_t & token_errors,
+        std::string const & symbol,
+        size_t line,
+        size_t column
+    ) noexcept
+    {
+        create_new_token_error(token_errors, { "Error: \"token\" could be introduced" }, symbol, line, column);
     }
 
     void handle_operator_by_fa(
@@ -401,7 +425,13 @@ namespace lexer
             if (has_dot && code[column] == '.')
             {
                 ++column;
-                create_new_token_error(token_errors, std::string{ code.substr(start, column - start) }, line, start);
+                create_new_token_error(
+                    token_errors,
+                    "Error: double dot in number value",
+                    std::string{ code.substr(start, column - start) },
+                    line,
+                    start
+                );
                 return;
             }
             if (!has_dot && code[column] == '.')
@@ -409,7 +439,13 @@ namespace lexer
                 if (column - last_number_separator_index == 1)
                 {
                     ++column;
-                    create_new_token_error(token_errors, std::string{ code.substr(start, column - start) }, line, start);
+                    create_new_token_error(
+                        token_errors,
+                        "Error: number separator and dot too close",
+                        std::string{ code.substr(start, column - start) },
+                        line,
+                        start
+                    );
                     return;
                 }
                 has_dot = true;
@@ -417,10 +453,28 @@ namespace lexer
             }
             if (code[column] == '\'')
             {
-                if (column - last_number_separator_index == 1 || column - dot_position == 1)
+                if (column - last_number_separator_index == 1)
                 {
                     ++column;
-                    create_new_token_error(token_errors, std::string{ code.substr(start, column - start) }, line, start);
+                    create_new_token_error(
+                        token_errors,
+                        "Error: number separators too close",
+                        std::string{ code.substr(start, column - start) },
+                        line,
+                        start
+                    );
+                    return;
+                }
+                if (column - dot_position == 1)
+                {
+                    ++column;
+                    create_new_token_error(
+                        token_errors,
+                        "Error: dot and number separator too close",
+                        std::string{ code.substr(start, column - start) },
+                        line,
+                        start
+                    );
                     return;
                 }
                 last_number_separator_index = column;
@@ -431,7 +485,26 @@ namespace lexer
         if (column < code.size() && !is_valid_symbol_after_number(code[column]))
         {
             ++column;
-            create_new_token_error(token_errors, std::string{ code.substr(start, column - start) }, line, start);
+            create_new_token_error(
+                token_errors,
+                "Error: invalid symbol after number",
+                std::string{ code.substr(start, column - start) },
+                line,
+                start
+            );
+            return;
+        }
+        if (!((is_decimal && is_digit(code[column - 1])) ||
+            (is_hex && is_hex_number(code[column - 1])) ||
+            (is_binary && is_binary_number(code[column - 1]))))
+        {
+            create_new_token_error(
+                token_errors,
+                "Error: invalid number end",
+                std::string{ code.substr(start, column - start) },
+                line,
+                start
+            );
             return;
         }
 
@@ -461,10 +534,28 @@ namespace lexer
         ++column;
         if (column >= code.size())
         {
-            create_new_token_error(token_errors, std::string{ c }, line, column);
+            create_new_token_error(
+                token_errors,
+                "Error: unfinished symbol: symbol on end of line",
+                std::string{ c },
+                line,
+                column
+            );
             return;
         }
         char next_char = code[column];
+
+        if (next_char == '\'')
+        {
+            create_new_token_error(
+                token_errors,
+                "Error: empty character constant",
+                std::string{ c, next_char },
+                line,
+                column
+            );
+            return;
+        }
 
         bool const is_need_additional_char = (next_char == '\\');
         char additional_char;
@@ -475,7 +566,13 @@ namespace lexer
 
             if (column >= code.size())
             {
-                create_new_token_error(token_errors, std::string{ c, additional_char }, line, column);
+                create_new_token_error(
+                    token_errors,
+                    "Error: unfinished symbol: symbols on end of line",
+                    std::string{ c, additional_char },
+                    line,
+                    column
+                );
                 return;
             }
             next_char = code[column];
@@ -486,10 +583,22 @@ namespace lexer
         {
             if (is_need_additional_char)
             {
-                create_new_token_error(token_errors, std::string{ c, additional_char, next_char }, line, column);
+                create_new_token_error(
+                    token_errors,
+                    "Error: unfinished symbol: symbols on end of line",
+                    std::string{ c, additional_char, next_char },
+                    line,
+                    column
+                );
                 return;
             }
-            create_new_token_error(token_errors, std::string{ c, next_char }, line, column);
+            create_new_token_error(
+                token_errors,
+                "Error: unfinished symbol: symbols on end of line",
+                std::string{ c, next_char },
+                line,
+                column
+            );
             return;
         }
         char const last_char = code[column];
@@ -498,10 +607,22 @@ namespace lexer
         {
             if (is_need_additional_char)
             {
-                create_new_token_error(token_errors, std::string{ c, additional_char, next_char, last_char }, line, column);
+                create_new_token_error(
+                    token_errors,
+                    "Error: too many characters in symbol constant",
+                    std::string{ c, additional_char, next_char, last_char },
+                    line,
+                    column
+                );
                 return;
             }
-            create_new_token_error(token_errors, std::string{ c, next_char, last_char }, line, column);
+            create_new_token_error(
+                token_errors,
+                "Error: too many characters in symbol constant",
+                std::string{ c, next_char, last_char },
+                line,
+                column
+            );
             return;
         }
         ++column;
@@ -574,6 +695,7 @@ namespace lexer
                 string_constant_data.data += std::string{ code.substr(start, column - start) };
                 create_new_token_error(
                     token_errors,
+                    "Error: unfinished string constant",
                     string_constant_data.data,
                     string_constant_data.line,
                     string_constant_data.column
@@ -581,7 +703,13 @@ namespace lexer
                 string_constant_data.is_active = false;
                 return;
             }
-            create_new_token_error(token_errors, std::string{ code.substr(start, column - start) }, line, column);
+            create_new_token_error(
+                token_errors,
+                "Error: unfinished string constant",
+                std::string{ code.substr(start, column - start) },
+                line,
+                column
+            );
             return;
         }
 
@@ -628,7 +756,13 @@ namespace lexer
         std::pair<TokenType, bool> const preprocessor_directives = try_get_preprocessor_directives(word);
         if (!preprocessor_directives.second)
         {
-            create_new_token_error(token_errors, std::string{ word }, line, column);
+            create_new_token_error(
+                token_errors,
+                "Error: undefined preprocessor directives",
+                std::string{ word },
+                line,
+                column
+            );
             return;
         }
 
@@ -665,7 +799,13 @@ namespace lexer
             ++column;
             if (column >= code.size())
             {
-                create_new_token_error(token_errors, { c }, line, column);
+                create_new_token_error(
+                    token_errors,
+                    "Error: undefined symbol on end of line",
+                    { c },
+                    line,
+                    column
+                );
                 return;
             }
             char const next_char = code[column];
@@ -679,11 +819,15 @@ namespace lexer
             {
                 is_first_comment_type = false;
             }
-            else
-            {
-                create_new_token_error(token_errors, { c, next_char }, line, column);
-                return;
-            }
+
+            create_new_token_error(
+                token_errors,
+                "Error: undefined symbol or unstarting comment",
+                { c, next_char },
+                line,
+                column
+            );
+            return;
         }
 
         bool is_previous_spesial_symbol = false;
@@ -799,7 +943,13 @@ namespace lexer
         {
             if (node.type == TokenType::Invalid)
             {
-                create_new_token_error(token_errors, std::string{ code.substr(start, column - start) }, line, column);
+                create_new_token_error(
+                    token_errors,
+                    "Error: invalid operator",
+                    std::string{ code.substr(start, column - start) },
+                    line,
+                    column
+                );
             }
             else
             {
@@ -992,7 +1142,13 @@ namespace lexer
             return true;
         }
 
-        create_new_token_error(token_errors, { c }, line, column);
+        create_new_token_error(
+            token_errors,
+            "Error: \"tokem\" could not be recognized",
+            { c },
+            line,
+            column
+        );
         ++column;
         return true;
     }
@@ -1049,6 +1205,7 @@ namespace lexer
         {
             create_new_token_error(
                 token_errors,
+                "Error, unfinished comment",
                 commented_code_data.data,
                 commented_code_data.line,
                 commented_code_data.column
@@ -1058,6 +1215,7 @@ namespace lexer
         {
             create_new_token_error(
                 token_errors,
+                "Error, unfinished string constant",
                 string_constant_data.data,
                 string_constant_data.line,
                 string_constant_data.column
@@ -1084,7 +1242,7 @@ namespace lexer
             {
                 os << "Line: " << std::right << std::setw(4) << token_errors[i].line <<
                     '[' << std::left << std::setw(4) << token_errors[i].column << ']' << ' ';
-                os << TokenError::message << ". ";
+                os << std::setw(50) << token_errors[i].message << ' ';
                 os << "Symbol: " << std::setw(0) << '|' << token_errors[i].symbol << '|';
                 os << '\n';
             }
