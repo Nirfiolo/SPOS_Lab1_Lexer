@@ -41,8 +41,6 @@ namespace lexer
 
         PreprocessorDirectivesEnd,
 
-        PrepDirEnd,
-
         // * comments
         SingleLineComment,
         MultyLineComment,
@@ -208,8 +206,6 @@ namespace lexer
 
         "PreprocessorDirectivesEnd",
 
-        "PrepDirEnd",
-
         // * comments
         "// ...",
         "/* ... */",
@@ -317,6 +313,10 @@ namespace lexer
         ".",
         "->",
         "::",
+
+            // add <<= << ...
+
+        // TODO: handle by more size
 
         "OperatorsEnd",
 

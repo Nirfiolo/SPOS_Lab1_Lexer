@@ -133,6 +133,19 @@ namespace lexer
         case lexer::TokenType::FloatNumber:
         case lexer::TokenType::Character:
         case lexer::TokenType::String:
+        case lexer::TokenType::SharpInclude:
+        case lexer::TokenType::SharpDefine:
+        case lexer::TokenType::SharpError:
+        case lexer::TokenType::SharpImport:
+        case lexer::TokenType::SharpLine:
+        case lexer::TokenType::SharpPragma:
+        case lexer::TokenType::SharpUsing:
+        case lexer::TokenType::SharpIf:
+        case lexer::TokenType::SharpIfdef:
+        case lexer::TokenType::SharpIfndef:
+        case lexer::TokenType::SharpElif:
+        case lexer::TokenType::SharpElse:
+        case lexer::TokenType::SharpUndef:
         case lexer::TokenType::SingleLineComment:
         case lexer::TokenType::MultyLineComment:
         case lexer::TokenType::Id:
@@ -151,11 +164,20 @@ namespace lexer
         case lexer::TokenType::SharpIfndef:
         case lexer::TokenType::SharpElif:
         case lexer::TokenType::SharpElse:
-        case lexer::TokenType::SharpEndif:
             return true;
         default:
             return false;
         }
+    }
+
+    bool is_end_of_multi_line_preprocessor_directives(TokenType type) noexcept
+    {
+        return is_multi_line_preprocessor_directives(type) || type == TokenType::SharpEndif;
+    }
+
+    bool is_single_word_preprocessor_directives(TokenType type) noexcept
+    {
+        return type == lexer::TokenType::SharpEndif;
     }
 
 
@@ -556,7 +578,7 @@ namespace lexer
             );
             return;
         }
-
+        
         bool const is_need_additional_char = (next_char == '\\');
         char additional_char;
         if (is_need_additional_char)
@@ -638,10 +660,8 @@ namespace lexer
         size_t line;
         size_t column;
         bool is_active{ false };
-        // Need for comments, string_constant ignore this field
-        // true - comment like: // ...
-        // false - comment like: /* ... */
-        bool is_first_comment_type{ false };
+        // Need for comments and preprocessor directives, string_constant ignore this field
+        TokenType type{ TokenType::Invalid };
     };
 
     void handle_string_constant(
@@ -734,14 +754,13 @@ namespace lexer
         create_new_token(symbol_table, tokens, line, start, TokenType::String, word);
     }
 
-    void handle_preprocessor_directives(
+    std::pair<TokenType, bool> try_handle_preprocessor_word(
         symbol_table_t & symbol_table,
         tokens_t & tokens,
         token_errors_t & token_errors,
         std::string_view code,
         size_t line,
-        size_t & column,
-        bool & is_now_preprocessor_directives
+        size_t & column
     ) noexcept
     {
         size_t const start = column;
@@ -753,23 +772,150 @@ namespace lexer
 
         std::string_view const word = code.substr(start, column - start);
 
-        std::pair<TokenType, bool> const preprocessor_directives = try_get_preprocessor_directives(word);
-        if (!preprocessor_directives.second)
+        return try_get_preprocessor_directives(word);
+    }
+
+    void handle_preprocessor_directives(
+        symbol_table_t & symbol_table,
+        tokens_t & tokens,
+        token_errors_t & token_errors,
+        std::string_view code,
+        size_t line,
+        size_t & column,
+        BetweenLinesData & preprocessor_directives_data
+    ) noexcept
+    {
+        size_t const start = column;
+
+        TokenType type{ TokenType::Invalid };
+        bool is_emptpy_line = false;
+        bool is_first_line = true;
+
+        if (preprocessor_directives_data.is_active)
         {
-            create_new_token_error(
-                token_errors,
-                "Error: undefined preprocessor directives",
-                std::string{ word },
-                line,
-                column
-            );
+            type = preprocessor_directives_data.type;
+            is_emptpy_line = true;
+            is_first_line = false;
+        }
+        else
+        {
+            std::pair<TokenType, bool> const preprocessor_directives =
+                try_handle_preprocessor_word(symbol_table, tokens, token_errors, code, line, column);
+
+            std::string_view const word = code.substr(start, column - start);
+            if (!preprocessor_directives.second)
+            {
+                create_new_token_error(
+                    token_errors,
+                    "Error: undefined preprocessor directives",
+                    std::string{ word },
+                    line,
+                    column
+                );
+                return;
+            }
+
+            type = preprocessor_directives.first;
+            if (is_single_word_preprocessor_directives(type))
+            {
+                create_new_token(symbol_table, tokens, line, start, type);
+                return;
+            }
+        }
+
+        if (is_multi_line_preprocessor_directives(type) && is_emptpy_line)
+        {
+            while (is_emptpy_line && column < code.size() && is_space(code[column]))
+            {
+                ++column;
+            }
+
+            if (column < code.size() && code[column] == '#')
+            {
+                size_t const current_column = column;
+
+                std::pair<TokenType, bool> const preprocessor_directives =
+                    try_handle_preprocessor_word(symbol_table, tokens, token_errors, code, line, column);
+
+                if (is_end_of_multi_line_preprocessor_directives(preprocessor_directives.first))
+                {
+                    create_new_token(
+                        symbol_table,
+                        tokens,
+                        preprocessor_directives_data.line,
+                        preprocessor_directives_data.column,
+                        type,
+                        preprocessor_directives_data.data
+                    );
+                    preprocessor_directives_data.is_active = false;
+
+                    column = current_column;
+                    return;
+                }
+            }
+            is_emptpy_line = false;
+        }
+
+        while (column < code.size())
+        {
+            ++column;
+        }
+
+        if (column >= code.size() && !is_multi_line_preprocessor_directives(type))
+        {
+            if (code.back() == '\\')
+            {
+                if (preprocessor_directives_data.is_active)
+                {
+                    preprocessor_directives_data.data += std::string{ code.substr(start, column - start - 1) };
+                    return;
+                }
+                preprocessor_directives_data.data = std::string{ code.substr(start, column - start - 1) };
+                preprocessor_directives_data.line = line;
+                preprocessor_directives_data.column = start;
+                preprocessor_directives_data.type = type;
+                preprocessor_directives_data.is_active = true;
+                return;
+            }
+
+            std::string_view const word = code.substr(start, column - start);
+            if (preprocessor_directives_data.is_active)
+            {
+                preprocessor_directives_data.data += std::string{ word };
+                create_new_token(
+                    symbol_table,
+                    tokens,
+                    preprocessor_directives_data.line,
+                    preprocessor_directives_data.column,
+                    type,
+                    preprocessor_directives_data.data
+                );
+                preprocessor_directives_data.is_active = false;
+                return;
+            }
+            create_new_token(symbol_table, tokens, line, start, type, word);
             return;
         }
 
-        create_new_token(symbol_table, tokens, line, start, preprocessor_directives.first);
-        if (!is_multi_line_preprocessor_directives(preprocessor_directives.first))
+        if (column >= code.size() && is_multi_line_preprocessor_directives(type))
         {
-            is_now_preprocessor_directives = true;
+            if (preprocessor_directives_data.is_active)
+            {
+                preprocessor_directives_data.data += std::string{ code.substr(start, column - start) };
+                return;
+            }
+            preprocessor_directives_data.data = std::string{ code.substr(start, column - start) };
+            preprocessor_directives_data.line = line;
+            preprocessor_directives_data.column = start;
+            preprocessor_directives_data.type = type;
+            preprocessor_directives_data.is_active = true;
+
+            if (is_first_line)
+            {
+                preprocessor_directives_data.data += '\n';
+            }
+
+            return;
         }
     }
 
@@ -788,11 +934,11 @@ namespace lexer
         size_t const start = column;
         // true - comment like: // ...
         // false - comment like: /* ... */
-        bool is_first_comment_type;
+        bool is_first_type;
 
         if (commented_code_data.is_active)
         {
-            is_first_comment_type = commented_code_data.is_first_comment_type;
+            is_first_type = (commented_code_data.type == TokenType::SingleLineComment);
         }
         if (!commented_code_data.is_active)
         {
@@ -813,11 +959,11 @@ namespace lexer
 
             if (next_char == '/')
             {
-                is_first_comment_type = true;
+                is_first_type = true;
             }
             else if (next_char == '*')
             {
-                is_first_comment_type = false;
+                is_first_type = false;
             }
 
             create_new_token_error(
@@ -833,7 +979,7 @@ namespace lexer
         bool is_previous_spesial_symbol = false;
         bool is_previous_star_symbol = false;
 
-        while (column < code.size() && !(!is_first_comment_type && is_previous_star_symbol && code[column] == '/'))
+        while (column < code.size() && !(!is_first_type && is_previous_star_symbol && code[column] == '/'))
         {
             if (is_previous_spesial_symbol)
             {
@@ -856,7 +1002,7 @@ namespace lexer
             ++column;
         }
 
-        if (column >= code.size() && !is_previous_spesial_symbol && is_first_comment_type)
+        if (column >= code.size() && !is_previous_spesial_symbol && is_first_type)
         {
             std::string_view const word = code.substr(start, column - start);
             if (commented_code_data.is_active)
@@ -876,7 +1022,7 @@ namespace lexer
             create_new_token(symbol_table, tokens, line, start, TokenType::SingleLineComment, word);
             return;
         }
-        if (column >= code.size() && is_previous_spesial_symbol && is_first_comment_type)
+        if (column >= code.size() && is_previous_spesial_symbol && is_first_type)
         {
             if (commented_code_data.is_active)
             {
@@ -886,11 +1032,12 @@ namespace lexer
             commented_code_data.data = std::string{ code.substr(start, column - start - 1) };
             commented_code_data.line = line;
             commented_code_data.column = start;
-            commented_code_data.is_first_comment_type = is_first_comment_type;
+            // TODO: fixed this
+            commented_code_data.type = is_first_type ? TokenType::SingleLineComment : TokenType::MultyLineComment;
             commented_code_data.is_active = true;
             return;
         }
-        if (column >= code.size() && !is_first_comment_type)
+        if (column >= code.size() && !is_first_type)
         {
             if (commented_code_data.is_active)
             {
@@ -900,7 +1047,7 @@ namespace lexer
             commented_code_data.data = std::string{ code.substr(start, column - start - 1) };
             commented_code_data.line = line;
             commented_code_data.column = start;
-            commented_code_data.is_first_comment_type = is_first_comment_type;
+            commented_code_data.type = is_first_type ? TokenType::SingleLineComment : TokenType::MultyLineComment;
             commented_code_data.is_active = true;
             return;
         }
@@ -1063,7 +1210,7 @@ namespace lexer
         size_t & column,
         BetweenLinesData & commented_code_data,
         BetweenLinesData & string_constant_data,
-        bool & is_now_preprocessor_directives
+        BetweenLinesData & preprocessor_directives_data
     ) noexcept
     {
         if (string_constant_data.is_active)
@@ -1076,24 +1223,27 @@ namespace lexer
             handle_comments(symbol_table, tokens, token_errors, code, line, column, commented_code_data);
             return !commented_code_data.is_active;
         }
+        if (preprocessor_directives_data.is_active)
+        {
+            handle_preprocessor_directives(symbol_table, tokens, token_errors, code, line, column, preprocessor_directives_data);
+            return !preprocessor_directives_data.is_active;
+        }
 
         while (column < code.size() && is_space(code[column]))
         {
             ++column;
         }
 
-        if (column == code.size())
+        if (column >= code.size())
         {
-            if (is_now_preprocessor_directives && (code.empty() || code.back() != '\\'))
-            {
-                create_new_token(symbol_table, tokens, line, code.size(), TokenType::PrepDirEnd);
-                is_now_preprocessor_directives = false;
-            }
             return false;
         }
 
         char const c = code[column];
 
+        // TODO: fixed copy-paste
+
+        // TODO FA into handles
 
         if (is_valid_number_begin(c))
         {
@@ -1112,11 +1262,12 @@ namespace lexer
         }
         if (c == '#')
         {
-            handle_preprocessor_directives(symbol_table, tokens, token_errors, code, line, column, is_now_preprocessor_directives);
-            return true;
+            handle_preprocessor_directives(symbol_table, tokens, token_errors, code, line, column, preprocessor_directives_data);
+            return !preprocessor_directives_data.is_active;
         }
         if (c == '/')
         {
+            // TODO: dilive
             handle_comments(symbol_table, tokens, token_errors, code, line, column, commented_code_data);
             return !commented_code_data.is_active;
         }
@@ -1136,14 +1287,10 @@ namespace lexer
             return true;
         }
 
-        if (is_now_preprocessor_directives && column + 1 == code.size() && c == '\\')
-        {
-            ++column;
-            return true;
-        }
-
+        // TODO: more info
         create_new_token_error(
             token_errors,
+            // TODO: fixed typo
             "Error: \"tokem\" could not be recognized",
             { c },
             line,
@@ -1176,7 +1323,7 @@ namespace lexer
 
         BetweenLinesData commented_code_data{};
         BetweenLinesData string_constant_data{};
-        bool is_now_preprocessor_directives = false;
+        BetweenLinesData preprocessor_directives_data{};
 
         std::string code;
 
@@ -1193,7 +1340,7 @@ namespace lexer
                 column,
                 commented_code_data,
                 string_constant_data,
-                is_now_preprocessor_directives
+                preprocessor_directives_data
             ))
             {
 
@@ -1221,10 +1368,23 @@ namespace lexer
                 string_constant_data.column
             );
         }
+        if (preprocessor_directives_data.is_active)
+        {
+            create_new_token_error(
+                token_errors,
+                "Error, unfinished preprocessor directives",
+                preprocessor_directives_data.data,
+                preprocessor_directives_data.line,
+                preprocessor_directives_data.column
+            );
+        }
 
         return { symbol_table, { tokens, token_errors } };
     }
 
+    // TODO: fixed token output
+    // firstly only tokens
+    // secondly all other
     void output_lexer_data(std::ostream & os, lexer_output_t const & lexer_output) noexcept
     {
         lexer::symbol_table_t const & symbol_table = lexer_output.first;
