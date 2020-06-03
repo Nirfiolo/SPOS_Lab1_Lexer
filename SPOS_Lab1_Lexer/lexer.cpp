@@ -1053,6 +1053,22 @@ namespace lexer
                 return;
             }
         }
+
+        if (state.type == TokenType::Invalid)
+        {
+            create_new_token_error(
+                data.token_errors,
+                "Error: invalid operator",
+                std::string{ data.code.substr(start, data.column - start) },
+                data.line,
+                data.column
+            );
+        }
+        else
+        {
+            create_new_token(data.symbol_table, data.tokens, data.line, start, state.type);
+        }
+        --data.column;
     }
 
     void handle_operator_by_fa(CommonData & data) noexcept
@@ -1249,9 +1265,7 @@ namespace lexer
             create_new_token_error(
                 data.token_errors,
                 "Error, unfinished comment",
-                commented_code_data.data,
-                commented_code_data.line,
-                commented_code_data.column
+                commented_code_data
             );
         }
         if (string_constant_data.is_active)
@@ -1259,9 +1273,7 @@ namespace lexer
             create_new_token_error(
                 data.token_errors,
                 "Error, unfinished string constant",
-                string_constant_data.data,
-                string_constant_data.line,
-                string_constant_data.column
+                string_constant_data
             );
         }
         if (preprocessor_directives_data.is_active)
@@ -1269,9 +1281,7 @@ namespace lexer
             create_new_token_error(
                 data.token_errors,
                 "Error, unfinished preprocessor directives",
-                preprocessor_directives_data.data,
-                preprocessor_directives_data.line,
-                preprocessor_directives_data.column
+                preprocessor_directives_data
             );
         }
 

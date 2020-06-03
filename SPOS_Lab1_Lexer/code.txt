@@ -8,6 +8,8 @@ int main()
 
 while (column < code.size() && is_valid_number_part(code[column]))/
 
+std::pair<size_t, std::pair<size_t, std::pair<size_t, std::pair<size_t, std::pair<size_t, std::pair<size_t, size_t>>>>>> a;
+
 #if 0
 #define f 0
 #if 0

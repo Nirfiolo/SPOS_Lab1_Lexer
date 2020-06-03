@@ -138,10 +138,14 @@ namespace lexer
         BinaryOr,
         BinaryNot,
         BinaryXor,
+        BinaryShiftToLeft,
+        BinaryShiftToRight,
         BinaryAndAssociation,
         BinaryOrAssociation,
         BinaryNotAssociation,
         BinaryXorAssociation,
+        BinaryShiftToLeftAssociation,
+        BinaryShiftToRightAssociation,
         // conditional ( ? : )
         QUEST,
         Colon,
@@ -149,6 +153,7 @@ namespace lexer
         Dot,
         MemberAccess,
         Scope,
+        Dotted,
 
         OperatorsEnd,
 
@@ -302,10 +307,14 @@ namespace lexer
         "|",
         "~",
         "^",
+        "<<",
+        ">>",
         "&=",
         "|=",
         "~=",
         "^=",
+        "<<=",
+        ">>=",
         // conditional ( ? : )
         "?",
         ":",
@@ -313,8 +322,8 @@ namespace lexer
         ".",
         "->",
         "::",
+        "...",
 
-            // add <<= << ...
 
         // TODO: handle by more size
 
