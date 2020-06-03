@@ -41,8 +41,6 @@ namespace lexer
 
         PreprocessorDirectivesEnd,
 
-        PrepDirEnd,
-
         // * comments
         SingleLineComment,
         MultyLineComment,
@@ -140,10 +138,14 @@ namespace lexer
         BinaryOr,
         BinaryNot,
         BinaryXor,
+        BinaryShiftToLeft,
+        BinaryShiftToRight,
         BinaryAndAssociation,
         BinaryOrAssociation,
         BinaryNotAssociation,
         BinaryXorAssociation,
+        BinaryShiftToLeftAssociation,
+        BinaryShiftToRightAssociation,
         // conditional ( ? : )
         QUEST,
         Colon,
@@ -151,6 +153,7 @@ namespace lexer
         Dot,
         MemberAccess,
         Scope,
+        Dotted,
 
         OperatorsEnd,
 
@@ -207,8 +210,6 @@ namespace lexer
         "#undef",
 
         "PreprocessorDirectivesEnd",
-
-        "PrepDirEnd",
 
         // * comments
         "// ...",
@@ -306,10 +307,14 @@ namespace lexer
         "|",
         "~",
         "^",
+        "<<",
+        ">>",
         "&=",
         "|=",
         "~=",
         "^=",
+        "<<=",
+        ">>=",
         // conditional ( ? : )
         "?",
         ":",
@@ -317,6 +322,7 @@ namespace lexer
         ".",
         "->",
         "::",
+        "...",
 
         "OperatorsEnd",
 
@@ -367,12 +373,6 @@ namespace lexer
         size_t line;
         size_t column;
         size_t length;
-
-        TokenError(std::string symbol, size_t line, size_t column, size_t length) noexcept
-            : TokenError{ { "Error: \"token\" could be introduced" }, symbol, line, column, length }
-        {
-
-        }
 
         TokenError(std::string message, std::string symbol, size_t line, size_t column, size_t length) noexcept
             : message{ message },

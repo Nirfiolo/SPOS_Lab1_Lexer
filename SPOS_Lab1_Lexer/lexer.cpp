@@ -133,6 +133,19 @@ namespace lexer
         case lexer::TokenType::FloatNumber:
         case lexer::TokenType::Character:
         case lexer::TokenType::String:
+        case lexer::TokenType::SharpInclude:
+        case lexer::TokenType::SharpDefine:
+        case lexer::TokenType::SharpError:
+        case lexer::TokenType::SharpImport:
+        case lexer::TokenType::SharpLine:
+        case lexer::TokenType::SharpPragma:
+        case lexer::TokenType::SharpUsing:
+        case lexer::TokenType::SharpIf:
+        case lexer::TokenType::SharpIfdef:
+        case lexer::TokenType::SharpIfndef:
+        case lexer::TokenType::SharpElif:
+        case lexer::TokenType::SharpElse:
+        case lexer::TokenType::SharpUndef:
         case lexer::TokenType::SingleLineComment:
         case lexer::TokenType::MultyLineComment:
         case lexer::TokenType::Id:
@@ -151,27 +164,36 @@ namespace lexer
         case lexer::TokenType::SharpIfndef:
         case lexer::TokenType::SharpElif:
         case lexer::TokenType::SharpElse:
-        case lexer::TokenType::SharpEndif:
             return true;
         default:
             return false;
         }
     }
 
+    bool is_end_of_multi_line_preprocessor_directives(TokenType type) noexcept
+    {
+        return is_multi_line_preprocessor_directives(type) || type == TokenType::SharpEndif;
+    }
 
-    struct FANode
+    bool is_single_word_preprocessor_directives(TokenType type) noexcept
+    {
+        return type == lexer::TokenType::SharpEndif;
+    }
+
+
+    struct FAState
     {
         char c{ '\0' };
         TokenType type{ TokenType::Invalid };
 
-        std::vector<FANode> children{};
+        std::vector<FAState> transitions{};
     };
 
-    static FANode fa_root{};
+    static FAState fa_start{};
 
-    void generate_fa_node(
+    void generate_fa_state(
         std::vector<std::pair<std::string, TokenType>> const & string_to_type,
-        FANode & node,
+        FAState & state,
         size_t offset,
         size_t & position
     ) noexcept
@@ -181,14 +203,14 @@ namespace lexer
             size_t const last_poistion = position;
             if (string_to_type[position].first.size() > offset)
             {
-                FANode new_node{};
-                generate_fa_node(string_to_type, new_node, offset + 1, position);
-                node.children.emplace_back(std::move(new_node));
+                FAState new_state{};
+                generate_fa_state(string_to_type, new_state, offset + 1, position);
+                state.transitions.emplace_back(std::move(new_state));
             }
             else
             {
-                node.c = string_to_type[position].first[offset - 1];
-                node.type = string_to_type[position].second;
+                state.c = string_to_type[position].first[offset - 1];
+                state.type = string_to_type[position].second;
                 ++position;
             }
 
@@ -218,7 +240,7 @@ namespace lexer
 
         std::sort(string_to_type.begin(), string_to_type.end());
         size_t position = 0;
-        generate_fa_node(string_to_type, fa_root, 0, position);
+        generate_fa_state(string_to_type, fa_start, 0, position);
     }
 
 
@@ -267,6 +289,25 @@ namespace lexer
         return { std::numeric_limits<size_t>::max(), false };
     }
 
+    struct CommonData
+    {
+        symbol_table_t symbol_table{};
+        tokens_t tokens{};
+        token_errors_t token_errors{};
+        std::string_view code{};
+        size_t line{ 0 };
+        size_t column{ 0 };
+    };
+
+    struct BetweenLinesData
+    {
+        std::string data{ "" };
+        size_t line;
+        size_t column;
+        bool is_active{ false };
+        TokenType type{ TokenType::Invalid };
+    };
+
     void create_new_token(
         symbol_table_t & symbol_table,
         tokens_t & tokens,
@@ -295,6 +336,21 @@ namespace lexer
         }
     }
 
+    void create_new_token(
+        symbol_table_t & symbol_table,
+        tokens_t & tokens,
+        BetweenLinesData const & between_lines_data
+    ) noexcept
+    {
+        create_new_token(symbol_table,
+            tokens,
+            between_lines_data.line,
+            between_lines_data.column,
+            between_lines_data.type,
+            between_lines_data.data
+        );
+    }
+
     void create_new_token_error(
         token_errors_t & token_errors,
         std::string const & message,
@@ -305,58 +361,35 @@ namespace lexer
     {
         size_t const length = symbol.size();
 
-        if (!token_errors.empty())
-        {
-            TokenError & last_token_error = token_errors.back();
-
-            if (last_token_error.line == line &&
-                last_token_error.column + last_token_error.length == column &&
-                last_token_error.message == message
-                )
-            {
-                last_token_error.length += length;
-                last_token_error.symbol += symbol;
-                return;
-            }
-        }
         token_errors.push_back({ message, symbol, line, column, length });
     }
 
     void create_new_token_error(
         token_errors_t & token_errors,
-        std::string const & symbol,
-        size_t line,
-        size_t column
+        std::string const & message,
+        BetweenLinesData const & between_lines_data
     ) noexcept
     {
-        create_new_token_error(token_errors, { "Error: \"token\" could be introduced" }, symbol, line, column);
+        create_new_token_error(
+            token_errors,
+            message,
+            between_lines_data.data,
+            between_lines_data.line,
+            between_lines_data.column
+        );
     }
 
-    void handle_operator_by_fa(
-        symbol_table_t & symbol_table,
-        tokens_t & tokens,
-        token_errors_t & token_errors,
-        std::string_view code,
-        size_t line,
-        size_t & column
-    ) noexcept;
+    void handle_operator_by_fa(CommonData & data) noexcept;
 
-    void handle_digit(
-        symbol_table_t & symbol_table,
-        tokens_t & tokens,
-        token_errors_t & token_errors,
-        std::string_view code,
-        size_t line,
-        size_t & column
-    ) noexcept
+    void handle_digit(CommonData & data) noexcept
     {
-        char const c = code[column];
+        char const c = data.code[data.column];
 
-        size_t const start = column;
-        ++column;
+        size_t const start = data.column;
+        ++data.column;
 
         bool has_dot = (c == '.');
-        size_t dot_position = (has_dot ? column : std::numeric_limits<size_t>::max());
+        size_t dot_position = (has_dot ? data.column : std::numeric_limits<size_t>::max());
         bool is_decimal = true;
         bool is_hex = false;
         bool is_binary = false;
@@ -364,28 +397,28 @@ namespace lexer
 
         size_t last_number_separator_index = start;
 
-        if (column >= code.size())
+        if (data.column >= data.code.size())
         {
             if (has_dot)
             {
-                --column;
-                handle_operator_by_fa(symbol_table, tokens, token_errors, code, line, column);
+                --data.column;
+                handle_operator_by_fa(data);
                 return;
             }
-            create_new_token(symbol_table, tokens, line, start, TokenType::IntNumber, code.substr(start, 1));
+            create_new_token(data.symbol_table, data.tokens, data.line, start, TokenType::IntNumber, data.code.substr(start, 1));
             return;
         }
 
-        char const next_char = code[column];
+        char const next_char = data.code[data.column];
         if (has_dot && !is_digit(next_char))
         {
-            --column;
-            handle_operator_by_fa(symbol_table, tokens, token_errors, code, line, column);
+            --data.column;
+            handle_operator_by_fa(data);
             return;
         }
         if (!is_first_zero && !has_dot && !is_valid_number_begin(next_char))
         {
-            create_new_token(symbol_table, tokens, line, start, TokenType::IntNumber, code.substr(start, 1));
+            create_new_token(data.symbol_table, data.tokens, data.line, start, TokenType::IntNumber, data.code.substr(start, 1));
             return;
         }
         if (is_first_zero && next_char == 'b')
@@ -400,159 +433,152 @@ namespace lexer
         }
         else if (!is_valid_number_part(next_char))
         {
-            create_new_token(symbol_table, tokens, line, start, TokenType::IntNumber, code.substr(start, 1));
+            create_new_token(data.symbol_table, data.tokens, data.line, start, TokenType::IntNumber, data.code.substr(start, 1));
             return;
         }
 
         if (next_char == '\'')
         {
-            last_number_separator_index = column;
+            last_number_separator_index = data.column;
         }
 
         if (next_char == '.')
         {
             has_dot = true;
-            dot_position = column;
+            dot_position = data.column;
         }
 
-        ++column;
+        ++data.column;
 
-        while (column < code.size() &&
-            ((is_decimal && is_valid_number_part(code[column])) ||
-                (is_hex && is_valid_hex_number_part(code[column])) ||
-                (is_binary && is_valid_binary_number_part(code[column]))))
+        while (data.column < data.code.size() &&
+            ((is_decimal && is_valid_number_part(data.code[data.column])) ||
+                (is_hex && is_valid_hex_number_part(data.code[data.column])) ||
+                (is_binary && is_valid_binary_number_part(data.code[data.column]))))
         {
-            if (has_dot && code[column] == '.')
+            if (has_dot && data.code[data.column] == '.')
             {
-                ++column;
+                ++data.column;
                 create_new_token_error(
-                    token_errors,
+                    data.token_errors,
                     "Error: double dot in number value",
-                    std::string{ code.substr(start, column - start) },
-                    line,
+                    std::string{ data.code.substr(start, data.column - start) },
+                    data.line,
                     start
                 );
                 return;
             }
-            if (!has_dot && code[column] == '.')
+            if (!has_dot && data.code[data.column] == '.')
             {
-                if (column - last_number_separator_index == 1)
+                if (data.column - last_number_separator_index == 1)
                 {
-                    ++column;
+                    ++data.column;
                     create_new_token_error(
-                        token_errors,
+                        data.token_errors,
                         "Error: number separator and dot too close",
-                        std::string{ code.substr(start, column - start) },
-                        line,
+                        std::string{ data.code.substr(start, data.column - start) },
+                        data.line,
                         start
                     );
                     return;
                 }
                 has_dot = true;
-                dot_position = column;
+                dot_position = data.column;
             }
-            if (code[column] == '\'')
+            if (data.code[data.column] == '\'')
             {
-                if (column - last_number_separator_index == 1)
+                if (data.column - last_number_separator_index == 1)
                 {
-                    ++column;
+                    ++data.column;
                     create_new_token_error(
-                        token_errors,
+                        data.token_errors,
                         "Error: number separators too close",
-                        std::string{ code.substr(start, column - start) },
-                        line,
+                        std::string{ data.code.substr(start, data.column - start) },
+                        data.line,
                         start
                     );
                     return;
                 }
-                if (column - dot_position == 1)
+                if (data.column - dot_position == 1)
                 {
-                    ++column;
+                    ++data.column;
                     create_new_token_error(
-                        token_errors,
+                        data.token_errors,
                         "Error: dot and number separator too close",
-                        std::string{ code.substr(start, column - start) },
-                        line,
+                        std::string{ data.code.substr(start, data.column - start) },
+                        data.line,
                         start
                     );
                     return;
                 }
-                last_number_separator_index = column;
+                last_number_separator_index = data.column;
             }
-            ++column;
+            ++data.column;
         }
 
-        if (column < code.size() && !is_valid_symbol_after_number(code[column]))
+        if (data.column < data.code.size() && !is_valid_symbol_after_number(data.code[data.column]))
         {
-            ++column;
+            ++data.column;
             create_new_token_error(
-                token_errors,
+                data.token_errors,
                 "Error: invalid symbol after number",
-                std::string{ code.substr(start, column - start) },
-                line,
+                std::string{ data.code.substr(start, data.column - start) },
+                data.line,
                 start
             );
             return;
         }
-        if (!((is_decimal && is_digit(code[column - 1])) ||
-            (is_hex && is_hex_number(code[column - 1])) ||
-            (is_binary && is_binary_number(code[column - 1]))))
+        if (!((is_decimal && is_digit(data.code[data.column - 1])) ||
+            (is_hex && is_hex_number(data.code[data.column - 1])) ||
+            (is_binary && is_binary_number(data.code[data.column - 1]))))
         {
             create_new_token_error(
-                token_errors,
+                data.token_errors,
                 "Error: invalid number end",
-                std::string{ code.substr(start, column - start) },
-                line,
+                std::string{ data.code.substr(start, data.column - start) },
+                data.line,
                 start
             );
             return;
         }
 
-        std::string_view const number = code.substr(start, column - start);
+        std::string_view const number = data.code.substr(start, data.column - start);
         if (has_dot)
         {
-            create_new_token(symbol_table, tokens, line, start, TokenType::FloatNumber, number);
+            create_new_token(data.symbol_table, data.tokens, data.line, start, TokenType::FloatNumber, number);
         }
         if (!has_dot)
         {
-            create_new_token(symbol_table, tokens, line, start, TokenType::IntNumber, number);
+            create_new_token(data.symbol_table, data.tokens, data.line, start, TokenType::IntNumber, number);
         }
     }
 
-    void handle_literals_constant(
-        symbol_table_t & symbol_table,
-        tokens_t & tokens,
-        token_errors_t & token_errors,
-        std::string_view code,
-        size_t line,
-        size_t & column
-    ) noexcept
+    void handle_literals_constant(CommonData & data) noexcept
     {
-        char const c = code[column];
+        char const c = data.code[data.column];
 
-        size_t const start = column;
-        ++column;
-        if (column >= code.size())
+        size_t const start = data.column;
+        ++data.column;
+        if (data.column >= data.code.size())
         {
             create_new_token_error(
-                token_errors,
+                data.token_errors,
                 "Error: unfinished symbol: symbol on end of line",
                 std::string{ c },
-                line,
-                column
+                data.line,
+                data.column
             );
             return;
         }
-        char next_char = code[column];
+        char next_char = data.code[data.column];
 
         if (next_char == '\'')
         {
             create_new_token_error(
-                token_errors,
+                data.token_errors,
                 "Error: empty character constant",
                 std::string{ c, next_char },
-                line,
-                column
+                data.line,
+                data.column
             );
             return;
         }
@@ -561,285 +587,341 @@ namespace lexer
         char additional_char;
         if (is_need_additional_char)
         {
-            ++column;
+            ++data.column;
             additional_char = next_char;
 
-            if (column >= code.size())
+            if (data.column >= data.code.size())
             {
                 create_new_token_error(
-                    token_errors,
+                    data.token_errors,
                     "Error: unfinished symbol: symbols on end of line",
                     std::string{ c, additional_char },
-                    line,
-                    column
+                    data.line,
+                    data.column
                 );
                 return;
             }
-            next_char = code[column];
+            next_char = data.code[data.column];
         }
 
-        ++column;
-        if (column >= code.size())
+        ++data.column;
+        if (data.column >= data.code.size())
         {
+            std::string text;
             if (is_need_additional_char)
             {
-                create_new_token_error(
-                    token_errors,
-                    "Error: unfinished symbol: symbols on end of line",
-                    std::string{ c, additional_char, next_char },
-                    line,
-                    column
-                );
-                return;
+                text = std::string{ c, additional_char, next_char };
             }
+            else
+            {
+                text = std::string{ c, next_char };
+            }
+
             create_new_token_error(
-                token_errors,
+                data.token_errors,
                 "Error: unfinished symbol: symbols on end of line",
-                std::string{ c, next_char },
-                line,
-                column
+                text,
+                data.line,
+                data.column
             );
             return;
         }
-        char const last_char = code[column];
+        char const last_char = data.code[data.column];
 
         if (last_char != '\'')
         {
+            std::string text;
             if (is_need_additional_char)
             {
-                create_new_token_error(
-                    token_errors,
-                    "Error: too many characters in symbol constant",
-                    std::string{ c, additional_char, next_char, last_char },
-                    line,
-                    column
-                );
-                return;
+                text = std::string{ c, additional_char, next_char, last_char };
             }
+            else
+            {
+                text = std::string{ c, next_char, last_char };
+            }
+
             create_new_token_error(
-                token_errors,
+                data.token_errors,
                 "Error: too many characters in symbol constant",
-                std::string{ c, next_char, last_char },
-                line,
-                column
+                text,
+                data.line,
+                data.column
             );
             return;
         }
-        ++column;
+        ++data.column;
 
-        std::string_view const word = code.substr(start, column - start);
+        std::string_view const word = data.code.substr(start, data.column - start);
 
-        create_new_token(symbol_table, tokens, line, start, TokenType::Character, word);
+        create_new_token(data.symbol_table, data.tokens, data.line, start, TokenType::Character, word);
     }
 
-    struct BetweenLinesData
+    void handle_string_constant(CommonData & data, BetweenLinesData & string_constant_data) noexcept
     {
-        std::string data{ "" };
-        size_t line;
-        size_t column;
-        bool is_active{ false };
-        // Need for comments, string_constant ignore this field
-        // true - comment like: // ...
-        // false - comment like: /* ... */
-        bool is_first_comment_type{ false };
-    };
-
-    void handle_string_constant(
-        symbol_table_t & symbol_table,
-        tokens_t & tokens,
-        token_errors_t & token_errors,
-        std::string_view code,
-        size_t line,
-        size_t & column,
-        BetweenLinesData & string_constant_data
-    ) noexcept
-    {
-        size_t const start = column;
+        size_t const start = data.column;
         if (!string_constant_data.is_active)
         {
-            ++column;
+            ++data.column;
         }
 
         bool is_previous_spesial_symbol = false;
 
-        while (column < code.size() && !(!is_previous_spesial_symbol && code[column] == '\"'))
+        while (data.column < data.code.size() && !(!is_previous_spesial_symbol && data.code[data.column] == '\"'))
         {
             if (is_previous_spesial_symbol)
             {
                 is_previous_spesial_symbol = false;
             }
-            else if (!is_previous_spesial_symbol && code[column] == '\\')
+            else if (!is_previous_spesial_symbol && data.code[data.column] == '\\')
             {
                 is_previous_spesial_symbol = true;
             }
-            ++column;
+            ++data.column;
         }
 
-        if (column >= code.size() && is_previous_spesial_symbol)
+        if (data.column >= data.code.size() && is_previous_spesial_symbol)
         {
+            std::string text = std::string{ data.code.substr(start, data.column - start - 1) };
             if (string_constant_data.is_active)
             {
-                string_constant_data.data += std::string{ code.substr(start, column - start - 1) };
+                string_constant_data.data += std::move(text);
                 return;
             }
-            string_constant_data.data = std::string{ code.substr(start, column - start - 1) };
-            string_constant_data.line = line;
+            string_constant_data.data = std::move(text);
+            string_constant_data.line = data.line;
             string_constant_data.column = start;
             string_constant_data.is_active = true;
             return;
         }
-        else if (column >= code.size())
+        else if (data.column >= data.code.size())
         {
-            if (string_constant_data.is_active)
+            if (!string_constant_data.is_active)
             {
-                string_constant_data.data += std::string{ code.substr(start, column - start) };
-                create_new_token_error(
-                    token_errors,
-                    "Error: unfinished string constant",
-                    string_constant_data.data,
-                    string_constant_data.line,
-                    string_constant_data.column
-                );
-                string_constant_data.is_active = false;
-                return;
+                string_constant_data.data = "";
+                string_constant_data.line = data.line;
+                string_constant_data.column = data.column;
             }
+            string_constant_data.data += std::string{ data.code.substr(start, data.column - start) };
+            string_constant_data.is_active = false;
+
             create_new_token_error(
-                token_errors,
+                data.token_errors,
                 "Error: unfinished string constant",
-                std::string{ code.substr(start, column - start) },
-                line,
-                column
+                string_constant_data
             );
             return;
         }
 
-        ++column;
-        std::string_view const word = code.substr(start, column - start);
+        ++data.column;
+        std::string_view const word = data.code.substr(start, data.column - start);
 
         if (string_constant_data.is_active)
         {
             string_constant_data.data += std::string{ word };
+            string_constant_data.type = TokenType::String;
             create_new_token(
-                symbol_table,
-                tokens,
-                string_constant_data.line,
-                string_constant_data.column,
-                TokenType::String,
-                string_constant_data.data
+                data.symbol_table,
+                data.tokens,
+                string_constant_data
             );
             string_constant_data.is_active = false;
             return;
         }
 
-        create_new_token(symbol_table, tokens, line, start, TokenType::String, word);
+        create_new_token(data.symbol_table, data.tokens, data.line, start, TokenType::String, word);
     }
 
-    void handle_preprocessor_directives(
-        symbol_table_t & symbol_table,
-        tokens_t & tokens,
-        token_errors_t & token_errors,
-        std::string_view code,
-        size_t line,
-        size_t & column,
-        bool & is_now_preprocessor_directives
-    ) noexcept
+    std::pair<TokenType, bool> try_handle_preprocessor_word(CommonData & data) noexcept
     {
-        size_t const start = column;
-        ++column;
-        while (column < code.size() && is_lower(code[column]))
+        size_t const start = data.column;
+        ++data.column;
+        while (data.column < data.code.size() && is_lower(data.code[data.column]))
         {
-            ++column;
+            ++data.column;
         }
 
-        std::string_view const word = code.substr(start, column - start);
+        std::string_view const word = data.code.substr(start, data.column - start);
 
-        std::pair<TokenType, bool> const preprocessor_directives = try_get_preprocessor_directives(word);
-        if (!preprocessor_directives.second)
-        {
-            create_new_token_error(
-                token_errors,
-                "Error: undefined preprocessor directives",
-                std::string{ word },
-                line,
-                column
-            );
-            return;
-        }
-
-        create_new_token(symbol_table, tokens, line, start, preprocessor_directives.first);
-        if (!is_multi_line_preprocessor_directives(preprocessor_directives.first))
-        {
-            is_now_preprocessor_directives = true;
-        }
+        return try_get_preprocessor_directives(word);
     }
 
-    void handle_comments(
-        symbol_table_t & symbol_table,
-        tokens_t & tokens,
-        token_errors_t & token_errors,
-        std::string_view code,
-        size_t line,
-        size_t & column,
-        BetweenLinesData & commented_code_data
-    ) noexcept
+    void handle_preprocessor_directives(CommonData & data, BetweenLinesData & preprocessor_directives_data) noexcept
     {
-        char const c = code[column];
+        size_t const start = data.column;
 
-        size_t const start = column;
-        // true - comment like: // ...
-        // false - comment like: /* ... */
-        bool is_first_comment_type;
+        TokenType type{ TokenType::Invalid };
+        bool is_emptpy_line = preprocessor_directives_data.is_active;
 
-        if (commented_code_data.is_active)
+        if (preprocessor_directives_data.is_active)
         {
-            is_first_comment_type = commented_code_data.is_first_comment_type;
+            type = preprocessor_directives_data.type;
         }
-        if (!commented_code_data.is_active)
+        else
         {
-            ++column;
-            if (column >= code.size())
+            std::pair<TokenType, bool> const preprocessor_directives = try_handle_preprocessor_word(data);
+
+            if (!preprocessor_directives.second)
             {
+                std::string_view const word = data.code.substr(start, data.column - start);
                 create_new_token_error(
-                    token_errors,
-                    "Error: undefined symbol on end of line",
-                    { c },
-                    line,
-                    column
+                    data.token_errors,
+                    "Error: undefined preprocessor directives",
+                    std::string{ word },
+                    data.line,
+                    data.column
                 );
                 return;
             }
-            char const next_char = code[column];
-            ++column;
+
+            type = preprocessor_directives.first;
+            preprocessor_directives_data.type = type;
+            if (is_single_word_preprocessor_directives(type))
+            {
+                create_new_token(data.symbol_table, data.tokens, data.line, start, type);
+                return;
+            }
+        }
+
+        if (is_multi_line_preprocessor_directives(type) && is_emptpy_line)
+        {
+            while (is_emptpy_line && data.column < data.code.size() && is_space(data.code[data.column]))
+            {
+                ++data.column;
+            }
+
+            if (data.column < data.code.size() && data.code[data.column] == '#')
+            {
+                size_t const current_column = data.column;
+
+                std::pair<TokenType, bool> const preprocessor_directives = try_handle_preprocessor_word(data);
+                if (is_end_of_multi_line_preprocessor_directives(preprocessor_directives.first))
+                {
+                    create_new_token(
+                        data.symbol_table,
+                        data.tokens,
+                        preprocessor_directives_data
+                    );
+                    preprocessor_directives_data.is_active = false;
+
+                    data.column = current_column;
+                    return;
+                }
+            }
+            is_emptpy_line = false;
+        }
+
+        while (data.column < data.code.size())
+        {
+            ++data.column;
+        }
+
+        if (data.column >= data.code.size() &&
+            (!is_multi_line_preprocessor_directives(type) && data.code.back() == '\\') ||
+            is_multi_line_preprocessor_directives(type))
+        {
+            std::string text;
+            if (is_multi_line_preprocessor_directives(type))
+            {
+                text = std::string{ data.code.substr(start, data.column - start) };
+            }
+            else
+            {
+                text = std::string{ data.code.substr(start, data.column - start - 1) };
+            }
+
+            if (preprocessor_directives_data.is_active)
+            {
+                preprocessor_directives_data.data += std::move(text);
+                return;
+            }
+            preprocessor_directives_data.data = std::move(text);
+            preprocessor_directives_data.line = data.line;
+            preprocessor_directives_data.column = start;
+            preprocessor_directives_data.is_active = true;
+
+            if (is_multi_line_preprocessor_directives(type))
+            {
+                // special character to separate condition and action
+                preprocessor_directives_data.data += '$';
+            }
+            return;
+        }
+
+        if (data.column >= data.code.size() && !is_multi_line_preprocessor_directives(type))
+        {
+            std::string_view const text = data.code.substr(start, data.column - start);
+            if (preprocessor_directives_data.is_active)
+            {
+                preprocessor_directives_data.data += std::string{ text };
+                create_new_token(
+                    data.symbol_table,
+                    data.tokens,
+                    preprocessor_directives_data
+                );
+                preprocessor_directives_data.is_active = false;
+                return;
+            }
+            create_new_token(data.symbol_table, data.tokens, data.line, start, type, text);
+            return;
+        }
+    }
+
+    void handle_comments(CommonData & data, BetweenLinesData & commented_code_data) noexcept
+    {
+        char const c = data.code[data.column];
+
+        size_t const start = data.column;
+
+        TokenType type;
+
+        if (commented_code_data.is_active)
+        {
+            type = commented_code_data.type;
+        }
+        if (!commented_code_data.is_active)
+        {
+            ++data.column;
+            if (data.column >= data.code.size())
+            {
+                --data.column;
+                handle_operator_by_fa(data);
+                return;
+            }
+            char const next_char = data.code[data.column];
+            ++data.column;
 
             if (next_char == '/')
             {
-                is_first_comment_type = true;
+                type = TokenType::SingleLineComment;
+                commented_code_data.type = type;
             }
             else if (next_char == '*')
             {
-                is_first_comment_type = false;
+                type = TokenType::MultyLineComment;
+                commented_code_data.type = type;
             }
-
-            create_new_token_error(
-                token_errors,
-                "Error: undefined symbol or unstarting comment",
-                { c, next_char },
-                line,
-                column
-            );
-            return;
+            else
+            {
+                --data.column;
+                handle_operator_by_fa(data);
+                return;
+            }
         }
 
         bool is_previous_spesial_symbol = false;
         bool is_previous_star_symbol = false;
 
-        while (column < code.size() && !(!is_first_comment_type && is_previous_star_symbol && code[column] == '/'))
+        // true - comment like: // ...
+        // false - comment like: /* ... */
+        bool const is_first_type = (type == TokenType::SingleLineComment);
+
+        while (data.column < data.code.size() && !(!is_first_type && is_previous_star_symbol && data.code[data.column] == '/'))
         {
             if (is_previous_spesial_symbol)
             {
                 is_previous_spesial_symbol = false;
             }
-            else if (!is_previous_spesial_symbol && code[column] == '\\')
+            else if (!is_previous_spesial_symbol && data.code[data.column] == '\\')
             {
                 is_previous_spesial_symbol = true;
             }
@@ -848,197 +930,148 @@ namespace lexer
             {
                 is_previous_star_symbol = false;
             }
-            else if (!is_previous_star_symbol && code[column] == '*')
+            else if (!is_previous_star_symbol && data.code[data.column] == '*')
             {
                 is_previous_star_symbol = true;
             }
 
-            ++column;
+            ++data.column;
         }
 
-        if (column >= code.size() && !is_previous_spesial_symbol && is_first_comment_type)
+        if (data.column >= data.code.size() && ((is_previous_spesial_symbol && is_first_type) || !is_first_type))
         {
-            std::string_view const word = code.substr(start, column - start);
+            std::string text = std::string{ data.code.substr(start, data.column - start - 1) };
+            if (commented_code_data.is_active)
+            {
+                commented_code_data.data += std::move(text);
+                return;
+            }
+            commented_code_data.data = std::move(text);
+            commented_code_data.line = data.line;
+            commented_code_data.column = start;
+            commented_code_data.is_active = true;
+            return;
+        }
+        if ((data.column >= data.code.size() && !is_previous_spesial_symbol && is_first_type) ||
+            (data.column < data.code.size()))
+        {
+            if (data.column < data.code.size())
+            {
+                ++data.column;
+            }
+
+            std::string_view const word = data.code.substr(start, data.column - start);
             if (commented_code_data.is_active)
             {
                 commented_code_data.data += std::string{ word };
                 create_new_token(
-                    symbol_table,
-                    tokens,
-                    commented_code_data.line,
-                    commented_code_data.column,
-                    TokenType::SingleLineComment,
-                    commented_code_data.data
+                    data.symbol_table,
+                    data.tokens,
+                    commented_code_data
                 );
                 commented_code_data.is_active = false;
                 return;
             }
-            create_new_token(symbol_table, tokens, line, start, TokenType::SingleLineComment, word);
-            return;
-        }
-        if (column >= code.size() && is_previous_spesial_symbol && is_first_comment_type)
-        {
-            if (commented_code_data.is_active)
-            {
-                commented_code_data.data += std::string{ code.substr(start, column - start - 1) };
-                return;
-            }
-            commented_code_data.data = std::string{ code.substr(start, column - start - 1) };
-            commented_code_data.line = line;
-            commented_code_data.column = start;
-            commented_code_data.is_first_comment_type = is_first_comment_type;
-            commented_code_data.is_active = true;
-            return;
-        }
-        if (column >= code.size() && !is_first_comment_type)
-        {
-            if (commented_code_data.is_active)
-            {
-                commented_code_data.data += std::string{ code.substr(start, column - start - 1) };
-                return;
-            }
-            commented_code_data.data = std::string{ code.substr(start, column - start - 1) };
-            commented_code_data.line = line;
-            commented_code_data.column = start;
-            commented_code_data.is_first_comment_type = is_first_comment_type;
-            commented_code_data.is_active = true;
-            return;
-        }
-        if (column < code.size())
-        {
-            ++column;
-
-            std::string_view const word = code.substr(start, column - start);
-            if (commented_code_data.is_active)
-            {
-                commented_code_data.data += std::string{ word };
-                create_new_token(
-                    symbol_table,
-                    tokens,
-                    commented_code_data.line,
-                    commented_code_data.column,
-                    TokenType::MultyLineComment,
-                    commented_code_data.data
-                );
-                commented_code_data.is_active = false;
-                return;
-            }
-            create_new_token(symbol_table, tokens, line, start, TokenType::MultyLineComment, word);
-            return;
+            create_new_token(data.symbol_table, data.tokens, data.line, start, type, word);
         }
     }
 
-    void handle_operator_by_fa(
-        symbol_table_t & symbol_table,
-        tokens_t & tokens,
-        token_errors_t & token_errors,
-        std::string_view code,
-        size_t line,
-        size_t & column,
-        size_t start,
-        FANode const & node
-    ) noexcept
+    void handle_operator_by_fa(CommonData & data, size_t start, FAState const & state) noexcept
     {
-        if (column >= code.size())
+        if (data.column >= data.code.size())
         {
-            if (node.type == TokenType::Invalid)
+            if (state.type == TokenType::Invalid)
             {
                 create_new_token_error(
-                    token_errors,
+                    data.token_errors,
                     "Error: invalid operator",
-                    std::string{ code.substr(start, column - start) },
-                    line,
-                    column
+                    std::string{ data.code.substr(start, data.column - start) },
+                    data.line,
+                    data.column
                 );
             }
             else
             {
-                create_new_token(symbol_table, tokens, line, start, node.type);
+                create_new_token(data.symbol_table, data.tokens, data.line, start, state.type);
             }
             return;
         }
 
-        char const current_char = code[column];
+        char const current_char = data.code[data.column];
         bool const is_current_char_operator = is_operator(current_char);
 
         if (!is_current_char_operator)
         {
-            create_new_token(symbol_table, tokens, line, start, node.type);
+            create_new_token(data.symbol_table, data.tokens, data.line, start, state.type);
             return;
         }
 
-        ++column;
-        for (size_t i = 0; i < node.children.size(); ++i)
+        ++data.column;
+        for (size_t i = 0; i < state.transitions.size(); ++i)
         {
-            if (node.children[i].c == current_char)
+            if (state.transitions[i].c == current_char)
             {
-                handle_operator_by_fa(symbol_table, tokens, token_errors, code, line, column, start, node.children[i]);
+                handle_operator_by_fa(data, start, state.transitions[i]);
                 return;
             }
         }
+
+        if (state.type == TokenType::Invalid)
+        {
+            create_new_token_error(
+                data.token_errors,
+                "Error: invalid operator",
+                std::string{ data.code.substr(start, data.column - start) },
+                data.line,
+                data.column
+            );
+        }
+        else
+        {
+            create_new_token(data.symbol_table, data.tokens, data.line, start, state.type);
+        }
+        --data.column;
     }
 
-    void handle_operator_by_fa(
-        symbol_table_t & symbol_table,
-        tokens_t & tokens,
-        token_errors_t & token_errors,
-        std::string_view code,
-        size_t line,
-        size_t & column
-    ) noexcept
+    void handle_operator_by_fa(CommonData & data) noexcept
     {
-        handle_operator_by_fa(symbol_table, tokens, token_errors, code, line, column, column, fa_root);
+        handle_operator_by_fa(data, data.column, fa_start);
     }
 
-
-    void handle_word(
-        symbol_table_t & symbol_table,
-        tokens_t & tokens,
-        token_errors_t & token_errors,
-        std::string_view code,
-        size_t line,
-        size_t & column
-    ) noexcept
+    void handle_word(CommonData & data) noexcept
     {
         bool has_number = false;
 
-        size_t const start = column;
-        ++column;
-        while (column < code.size() && is_valid_word_part(code[column]))
+        size_t const start = data.column;
+        ++data.column;
+        while (data.column < data.code.size() && is_valid_word_part(data.code[data.column]))
         {
-            if (!has_number && is_digit(code[column]))
+            if (!has_number && is_digit(data.code[data.column]))
             {
                 has_number = true;
             }
-            ++column;
+            ++data.column;
         }
 
-        std::string_view const word = code.substr(start, column - start);
+        std::string_view const word = data.code.substr(start, data.column - start);
 
         if (!has_number)
         {
             std::pair<TokenType, bool> const try_keywords = try_get_keywords(word);
             if (try_keywords.second)
             {
-                create_new_token(symbol_table, tokens, line, start, try_keywords.first);
+                create_new_token(data.symbol_table, data.tokens, data.line, start, try_keywords.first);
                 return;
             }
         }
 
-        create_new_token(symbol_table, tokens, line, start, TokenType::Id, word);
+        create_new_token(data.symbol_table, data.tokens, data.line, start, TokenType::Id, word);
     }
 
-    void handle_punctuation_marks(
-        symbol_table_t & symbol_table,
-        tokens_t & tokens,
-        token_errors_t & token_errors,
-        std::string_view code,
-        size_t line,
-        size_t & column
-    ) noexcept
+    void handle_punctuation_marks(CommonData & data) noexcept
     {
-        char const c = code[column];
-        ++column;
+        char const c = data.code[data.column];
+        ++data.column;
 
         for (
             size_t i = static_cast<size_t>(TokenType::PunctuationMarksBegin) + 1;
@@ -1048,108 +1081,96 @@ namespace lexer
         {
             if (c == Token_to_string[i][0])
             {
-                create_new_token(symbol_table, tokens, line, column, static_cast<TokenType>(i));
+                create_new_token(data.symbol_table, data.tokens, data.line, data.column, static_cast<TokenType>(i));
                 return;
             }
         }
     }
 
     bool next_token(
-        symbol_table_t & symbol_table,
-        tokens_t & tokens,
-        token_errors_t & token_errors,
-        std::string_view code,
-        size_t line,
-        size_t & column,
+        CommonData & data,
         BetweenLinesData & commented_code_data,
         BetweenLinesData & string_constant_data,
-        bool & is_now_preprocessor_directives
+        BetweenLinesData & preprocessor_directives_data
     ) noexcept
     {
         if (string_constant_data.is_active)
         {
-            handle_string_constant(symbol_table, tokens, token_errors, code, line, column, string_constant_data);
+            handle_string_constant(data, string_constant_data);
             return !string_constant_data.is_active;
         }
         if (commented_code_data.is_active)
         {
-            handle_comments(symbol_table, tokens, token_errors, code, line, column, commented_code_data);
+            handle_comments(data, commented_code_data);
             return !commented_code_data.is_active;
         }
-
-        while (column < code.size() && is_space(code[column]))
+        if (preprocessor_directives_data.is_active)
         {
-            ++column;
+            handle_preprocessor_directives(data, preprocessor_directives_data);
+            return !preprocessor_directives_data.is_active;
         }
 
-        if (column == code.size())
+        while (data.column < data.code.size() && is_space(data.code[data.column]))
         {
-            if (is_now_preprocessor_directives && (code.empty() || code.back() != '\\'))
-            {
-                create_new_token(symbol_table, tokens, line, code.size(), TokenType::PrepDirEnd);
-                is_now_preprocessor_directives = false;
-            }
+            ++data.column;
+        }
+
+        if (data.column >= data.code.size())
+        {
             return false;
         }
 
-        char const c = code[column];
-
+        char const c = data.code[data.column];
 
         if (is_valid_number_begin(c))
         {
-            handle_digit(symbol_table, tokens, token_errors, code, line, column);
+            handle_digit(data);
             return true;
         }
         if (c == '\'')
         {
-            handle_literals_constant(symbol_table, tokens, token_errors, code, line, column);
+            handle_literals_constant(data);
             return true;
         }
         if (c == '\"')
         {
-            handle_string_constant(symbol_table, tokens, token_errors, code, line, column, string_constant_data);
+            handle_string_constant(data, string_constant_data);
             return !string_constant_data.is_active;
         }
         if (c == '#')
         {
-            handle_preprocessor_directives(symbol_table, tokens, token_errors, code, line, column, is_now_preprocessor_directives);
-            return true;
+            handle_preprocessor_directives(data, preprocessor_directives_data);
+            return !preprocessor_directives_data.is_active;
         }
         if (c == '/')
         {
-            handle_comments(symbol_table, tokens, token_errors, code, line, column, commented_code_data);
+            handle_comments(data, commented_code_data);
             return !commented_code_data.is_active;
         }
         if (is_valid_word_begin(c))
         {
-            handle_word(symbol_table, tokens, token_errors, code, line, column);
+            handle_word(data);
             return true;
         }
         if (is_operator(c))
         {
-            handle_operator_by_fa(symbol_table, tokens, token_errors, code, line, column);
+            handle_operator_by_fa(data);
             return true;
         }
         if (is_punctuation_marks(c))
         {
-            handle_punctuation_marks(symbol_table, tokens, token_errors, code, line, column);
-            return true;
-        }
-
-        if (is_now_preprocessor_directives && column + 1 == code.size() && c == '\\')
-        {
-            ++column;
+            handle_punctuation_marks(data);
             return true;
         }
 
         create_new_token_error(
-            token_errors,
-            "Error: \"tokem\" could not be recognized",
+            data.token_errors,
+            "Error: symbol could not be recognized",
             { c },
-            line,
-            column
+            data.line,
+            data.column
         );
-        ++column;
+        ++data.column;
         return true;
     }
 
@@ -1165,64 +1186,61 @@ namespace lexer
             return {};
         }
 
-        if (fa_root.children.empty())
+        if (fa_start.transitions.empty())
         {
             generate_fa();
         }
 
-        symbol_table_t symbol_table{};
-        tokens_t tokens{};
-        token_errors_t token_errors{};
+        CommonData data{};
 
         BetweenLinesData commented_code_data{};
         BetweenLinesData string_constant_data{};
-        bool is_now_preprocessor_directives = false;
+        BetweenLinesData preprocessor_directives_data{};
 
         std::string code;
 
-        size_t line = 0;
         while (std::getline(file_input, code))
         {
-            size_t column = 0;
+            data.code = code;
+            data.column = 0;
             while (next_token(
-                symbol_table,
-                tokens,
-                token_errors,
-                code,
-                line,
-                column,
+                data,
                 commented_code_data,
                 string_constant_data,
-                is_now_preprocessor_directives
+                preprocessor_directives_data
             ))
             {
 
             }
-            ++line;
+            ++data.line;
         }
 
         if (commented_code_data.is_active)
         {
             create_new_token_error(
-                token_errors,
+                data.token_errors,
                 "Error, unfinished comment",
-                commented_code_data.data,
-                commented_code_data.line,
-                commented_code_data.column
+                commented_code_data
             );
         }
         if (string_constant_data.is_active)
         {
             create_new_token_error(
-                token_errors,
+                data.token_errors,
                 "Error, unfinished string constant",
-                string_constant_data.data,
-                string_constant_data.line,
-                string_constant_data.column
+                string_constant_data
+            );
+        }
+        if (preprocessor_directives_data.is_active)
+        {
+            create_new_token_error(
+                data.token_errors,
+                "Error, unfinished preprocessor directives",
+                preprocessor_directives_data
             );
         }
 
-        return { symbol_table, { tokens, token_errors } };
+        return { data.symbol_table, { data.tokens, data.token_errors } };
     }
 
     void output_lexer_data(std::ostream & os, lexer_output_t const & lexer_output) noexcept
@@ -1250,6 +1268,35 @@ namespace lexer
         }
 
         os << "Tokens:\n";
+        for (size_t i = 0; i < tokens.size(); ++i)
+        {
+            os << std::left;
+            os << "( " << std::setw(15) << Token_to_string[static_cast<size_t>(tokens[i].type)] << ' ';
+            if (is_symbol_type(tokens[i].type))
+            {
+                os << ", " << std::setw(4) << std::to_string(tokens[i].index_in_symbol_table) << " )";
+            }
+            else
+            {
+                os << "       )";
+            }
+
+            os << '\n';
+        }
+        os << '\n';
+
+
+        os << "Symbol table:\n";
+        for (size_t i = 0; i < symbol_table.size(); ++i)
+        {
+            os << std::left;
+            os << "Index: " << std::setw(3) << i << ' ';
+            os << "Symbol: " << std::setw(0) << '|' << symbol_table[i] << '|';
+            os << '\n';
+        }
+        os << '\n';
+
+        os << "Tokens (full info):\n";
         for (size_t i = 0; i < tokens.size(); ++i)
         {
             os << std::left;

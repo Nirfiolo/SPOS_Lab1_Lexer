@@ -1,3 +1,5 @@
+#include <iostream>
+
 int main() 
 { 
     std::cout << "Hi, world!\n";
@@ -5,6 +7,22 @@ int main()
 }
 
 while (column < code.size() && is_valid_number_part(code[column]))/
+
+std::pair<size_t, std::pair<size_t, std::pair<size_t, std::pair<size_t, std::pair<size_t, std::pair<size_t, size_t>>>>>> a;
+
+'1 '1 
+$
+#if 0
+#define f 0
+#if 0
+
+#elif 1
+
+#else
+
+#endif // 0
+
+#endif // 0
 
 0xab123
 0xabv123
@@ -21,7 +39,7 @@ while (column < code.size() && is_valid_number_part(code[column]))/
 
 #adadsad
 
-a '1 * a * 1 = 1j '\ sdsd '\' 
+a '1 * $ + a * 1 = 1j '\ sdsd '\' 
 #include ;;;; .. () '
 #if 0 "" ''
 #endif
