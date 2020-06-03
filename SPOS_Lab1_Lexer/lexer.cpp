@@ -1319,6 +1319,35 @@ namespace lexer
         for (size_t i = 0; i < tokens.size(); ++i)
         {
             os << std::left;
+            os << "( " << std::setw(15) << Token_to_string[static_cast<size_t>(tokens[i].type)] << ' ';
+            if (is_symbol_type(tokens[i].type))
+            {
+                os << ", " << std::setw(4) << std::to_string(tokens[i].index_in_symbol_table) << " )";
+            }
+            else
+            {
+                os << "       )";
+            }
+
+            os << '\n';
+        }
+        os << '\n';
+
+
+        os << "Symbol table:\n";
+        for (size_t i = 0; i < symbol_table.size(); ++i)
+        {
+            os << std::left;
+            os << "Index: " << std::setw(3) << i << ' ';
+            os << "Symbol: " << std::setw(0) << '|' << symbol_table[i] << '|';
+            os << '\n';
+        }
+        os << '\n';
+
+        os << "Tokens (full info):\n";
+        for (size_t i = 0; i < tokens.size(); ++i)
+        {
+            os << std::left;
             os << "Id: " << std::setw(3) << i << ' ';
             os << "Type: " << std::setw(15) << Token_to_string[static_cast<size_t>(tokens[i].type)] << ' ';
             os << "Line: " << std::right << std::setw(4) << tokens[i].line <<
