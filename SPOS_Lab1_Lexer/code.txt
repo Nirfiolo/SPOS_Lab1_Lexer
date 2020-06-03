@@ -10,6 +10,8 @@ while (column < code.size() && is_valid_number_part(code[column]))/
 
 std::pair<size_t, std::pair<size_t, std::pair<size_t, std::pair<size_t, std::pair<size_t, std::pair<size_t, size_t>>>>>> a;
 
+'1 '1 
+$
 #if 0
 #define f 0
 #if 0
@@ -37,7 +39,7 @@ std::pair<size_t, std::pair<size_t, std::pair<size_t, std::pair<size_t, std::pai
 
 #adadsad
 
-a '1 * a * 1 = 1j '\ sdsd '\' 
+a '1 * $ + a * 1 = 1j '\ sdsd '\' 
 #include ;;;; .. () '
 #if 0 "" ''
 #endif

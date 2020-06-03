@@ -186,7 +186,7 @@ namespace lexer
         char c{ '\0' };
         TokenType type{ TokenType::Invalid };
 
-        std::vector<FAState> children{};
+        std::vector<FAState> transitions{};
     };
 
     static FAState fa_start{};
@@ -205,7 +205,7 @@ namespace lexer
             {
                 FAState new_state{};
                 generate_fa_state(string_to_type, new_state, offset + 1, position);
-                state.children.emplace_back(std::move(new_state));
+                state.transitions.emplace_back(std::move(new_state));
             }
             else
             {
@@ -361,20 +361,6 @@ namespace lexer
     {
         size_t const length = symbol.size();
 
-        if (!token_errors.empty())
-        {
-            TokenError & last_token_error = token_errors.back();
-
-            if (last_token_error.line == line &&
-                last_token_error.column + last_token_error.length == column &&
-                last_token_error.message == message
-                )
-            {
-                last_token_error.length += length;
-                last_token_error.symbol += symbol;
-                return;
-            }
-        }
         token_errors.push_back({ message, symbol, line, column, length });
     }
 
@@ -596,7 +582,7 @@ namespace lexer
             );
             return;
         }
-        
+
         bool const is_need_additional_char = (next_char == '\\');
         char additional_char;
         if (is_need_additional_char)
@@ -621,21 +607,20 @@ namespace lexer
         ++data.column;
         if (data.column >= data.code.size())
         {
+            std::string text;
             if (is_need_additional_char)
             {
-                create_new_token_error(
-                    data.token_errors,
-                    "Error: unfinished symbol: symbols on end of line",
-                    std::string{ c, additional_char, next_char },
-                    data.line,
-                    data.column
-                );
-                return;
+                text = std::string{ c, additional_char, next_char };
             }
+            else
+            {
+                text = std::string{ c, next_char };
+            }
+
             create_new_token_error(
                 data.token_errors,
                 "Error: unfinished symbol: symbols on end of line",
-                std::string{ c, next_char },
+                text,
                 data.line,
                 data.column
             );
@@ -645,21 +630,20 @@ namespace lexer
 
         if (last_char != '\'')
         {
+            std::string text;
             if (is_need_additional_char)
             {
-                create_new_token_error(
-                    data.token_errors,
-                    "Error: too many characters in symbol constant",
-                    std::string{ c, additional_char, next_char, last_char },
-                    data.line,
-                    data.column
-                );
-                return;
+                text = std::string{ c, additional_char, next_char, last_char };
             }
+            else
+            {
+                text = std::string{ c, next_char, last_char };
+            }
+
             create_new_token_error(
                 data.token_errors,
                 "Error: too many characters in symbol constant",
-                std::string{ c, next_char, last_char },
+                text,
                 data.line,
                 data.column
             );
@@ -766,14 +750,11 @@ namespace lexer
         size_t const start = data.column;
 
         TokenType type{ TokenType::Invalid };
-        bool is_emptpy_line = false;
-        bool is_first_line = true;
+        bool is_emptpy_line = preprocessor_directives_data.is_active;
 
         if (preprocessor_directives_data.is_active)
         {
             type = preprocessor_directives_data.type;
-            is_emptpy_line = true;
-            is_first_line = false;
         }
         else
         {
@@ -834,23 +815,40 @@ namespace lexer
             ++data.column;
         }
 
-        if (data.column >= data.code.size() && !is_multi_line_preprocessor_directives(type))
+        if (data.column >= data.code.size() &&
+            (!is_multi_line_preprocessor_directives(type) && data.code.back() == '\\') ||
+            is_multi_line_preprocessor_directives(type))
         {
-            if (data.code.back() == '\\')
+            std::string text;
+            if (is_multi_line_preprocessor_directives(type))
             {
-                std::string text = std::string{ data.code.substr(start, data.column - start - 1) };
-                if (preprocessor_directives_data.is_active)
-                {
-                    preprocessor_directives_data.data += std::move(text);
-                    return;
-                }
-                preprocessor_directives_data.data = std::move(text);
-                preprocessor_directives_data.line = data.line;
-                preprocessor_directives_data.column = start;
-                preprocessor_directives_data.is_active = true;
-                return;
+                text = std::string{ data.code.substr(start, data.column - start) };
+            }
+            else
+            {
+                text = std::string{ data.code.substr(start, data.column - start - 1) };
             }
 
+            if (preprocessor_directives_data.is_active)
+            {
+                preprocessor_directives_data.data += std::move(text);
+                return;
+            }
+            preprocessor_directives_data.data = std::move(text);
+            preprocessor_directives_data.line = data.line;
+            preprocessor_directives_data.column = start;
+            preprocessor_directives_data.is_active = true;
+
+            if (is_multi_line_preprocessor_directives(type))
+            {
+                // special character to separate condition and action
+                preprocessor_directives_data.data += '$';
+            }
+            return;
+        }
+
+        if (data.column >= data.code.size() && !is_multi_line_preprocessor_directives(type))
+        {
             std::string_view const text = data.code.substr(start, data.column - start);
             if (preprocessor_directives_data.is_active)
             {
@@ -866,27 +864,6 @@ namespace lexer
             create_new_token(data.symbol_table, data.tokens, data.line, start, type, text);
             return;
         }
-
-        if (data.column >= data.code.size() && is_multi_line_preprocessor_directives(type))
-        {
-            std::string text = std::string{ data.code.substr(start, data.column - start) };
-            if (preprocessor_directives_data.is_active)
-            {
-                preprocessor_directives_data.data += std::move(text);
-                return;
-            }
-            preprocessor_directives_data.data = std::move(text);
-            preprocessor_directives_data.line = data.line;
-            preprocessor_directives_data.column = start;
-            preprocessor_directives_data.is_active = true;
-
-            if (is_first_line)
-            {
-                preprocessor_directives_data.data += '\n';
-            }
-
-            return;
-        }
     }
 
     void handle_comments(CommonData & data, BetweenLinesData & commented_code_data) noexcept
@@ -894,14 +871,11 @@ namespace lexer
         char const c = data.code[data.column];
 
         size_t const start = data.column;
-        // true - comment like: // ...
-        // false - comment like: /* ... */
-        bool is_first_type;
+
         TokenType type;
 
         if (commented_code_data.is_active)
         {
-            is_first_type = (commented_code_data.type == TokenType::SingleLineComment);
             type = commented_code_data.type;
         }
         if (!commented_code_data.is_active)
@@ -918,13 +892,11 @@ namespace lexer
 
             if (next_char == '/')
             {
-                is_first_type = true;
                 type = TokenType::SingleLineComment;
                 commented_code_data.type = type;
             }
             else if (next_char == '*')
             {
-                is_first_type = false;
                 type = TokenType::MultyLineComment;
                 commented_code_data.type = type;
             }
@@ -938,6 +910,10 @@ namespace lexer
 
         bool is_previous_spesial_symbol = false;
         bool is_previous_star_symbol = false;
+
+        // true - comment like: // ...
+        // false - comment like: /* ... */
+        bool const is_first_type = (type == TokenType::SingleLineComment);
 
         while (data.column < data.code.size() && !(!is_first_type && is_previous_star_symbol && data.code[data.column] == '/'))
         {
@@ -962,23 +938,6 @@ namespace lexer
             ++data.column;
         }
 
-        if (data.column >= data.code.size() && !is_previous_spesial_symbol && is_first_type)
-        {
-            std::string_view const word = data.code.substr(start, data.column - start);
-            if (commented_code_data.is_active)
-            {
-                commented_code_data.data += std::string{ word };
-                create_new_token(
-                    data.symbol_table,
-                    data.tokens,
-                    commented_code_data
-                );
-                commented_code_data.is_active = false;
-                return;
-            }
-            create_new_token(data.symbol_table, data.tokens, data.line, start, TokenType::SingleLineComment, word);
-            return;
-        }
         if (data.column >= data.code.size() && ((is_previous_spesial_symbol && is_first_type) || !is_first_type))
         {
             std::string text = std::string{ data.code.substr(start, data.column - start - 1) };
@@ -993,9 +952,13 @@ namespace lexer
             commented_code_data.is_active = true;
             return;
         }
-        if (data.column < data.code.size())
+        if ((data.column >= data.code.size() && !is_previous_spesial_symbol && is_first_type) ||
+            (data.column < data.code.size()))
         {
-            ++data.column;
+            if (data.column < data.code.size())
+            {
+                ++data.column;
+            }
 
             std::string_view const word = data.code.substr(start, data.column - start);
             if (commented_code_data.is_active)
@@ -1010,7 +973,6 @@ namespace lexer
                 return;
             }
             create_new_token(data.symbol_table, data.tokens, data.line, start, type, word);
-            return;
         }
     }
 
@@ -1045,11 +1007,11 @@ namespace lexer
         }
 
         ++data.column;
-        for (size_t i = 0; i < state.children.size(); ++i)
+        for (size_t i = 0; i < state.transitions.size(); ++i)
         {
-            if (state.children[i].c == current_char)
+            if (state.transitions[i].c == current_char)
             {
-                handle_operator_by_fa(data, start, state.children[i]);
+                handle_operator_by_fa(data, start, state.transitions[i]);
                 return;
             }
         }
@@ -1160,10 +1122,6 @@ namespace lexer
 
         char const c = data.code[data.column];
 
-        // TODO: fixed copy-paste
-
-        // TODO FA into handles
-
         if (is_valid_number_begin(c))
         {
             handle_digit(data);
@@ -1186,7 +1144,6 @@ namespace lexer
         }
         if (c == '/')
         {
-            // TODO: dilive
             handle_comments(data, commented_code_data);
             return !commented_code_data.is_active;
         }
@@ -1206,11 +1163,9 @@ namespace lexer
             return true;
         }
 
-        // TODO: more info
         create_new_token_error(
             data.token_errors,
-            // TODO: fixed typo
-            "Error: \"tokem\" could not be recognized",
+            "Error: symbol could not be recognized",
             { c },
             data.line,
             data.column
@@ -1231,7 +1186,7 @@ namespace lexer
             return {};
         }
 
-        if (fa_start.children.empty())
+        if (fa_start.transitions.empty())
         {
             generate_fa();
         }
@@ -1288,9 +1243,6 @@ namespace lexer
         return { data.symbol_table, { data.tokens, data.token_errors } };
     }
 
-    // TODO: fixed token output
-    // firstly only data.tokens
-    // secondly all other
     void output_lexer_data(std::ostream & os, lexer_output_t const & lexer_output) noexcept
     {
         lexer::symbol_table_t const & symbol_table = lexer_output.first;
